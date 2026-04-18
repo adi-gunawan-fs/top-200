@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CircleHelp } from "lucide-react";
+import { ArrowLeft, CircleHelp, Download } from "lucide-react";
 import { CHANGE_TYPE_RULES, CHALLENGE_RULES, compareMessages } from "../utils/compareMessages";
 
 function formatDate(value) {
@@ -265,6 +265,24 @@ function SummarySingle({ label, value }) {
   );
 }
 
+function escapeCsvCell(value) {
+  const text = String(value ?? "");
+  const escaped = text.replace(/"/g, "\"\"");
+  return `"${escaped}"`;
+}
+
+function serializeJsonb(value) {
+  if (value === undefined) {
+    return "null";
+  }
+
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return JSON.stringify(String(value));
+  }
+}
+
 function ChangesTable({ title, rows, labelKey, itemType }) {
   return (
     <section className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -398,19 +416,89 @@ function BrandComparePage({ group, onBack }) {
   const dishRows = comparison ? comparison.changes.dishes : [];
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
 
+  function handleExportCsv() {
+    if (!comparison) {
+      return;
+    }
+
+    const exportRows = [
+      ...menuTitleRows
+        .filter((item) => item.status !== "deleted")
+        .flatMap((item) => (item.changedFields ?? [])
+          .filter((field) => field.changeType === "Major")
+          .map((field) => ({
+            type: "menuTitle",
+            id: item.id,
+            name: item.title ?? "-",
+            field: field.path ?? "-",
+            before: serializeJsonb(field.beforeValue),
+            after: serializeJsonb(field.afterValue),
+          }))),
+      ...dishRows
+        .filter((item) => item.status !== "deleted")
+        .flatMap((item) => (item.changedFields ?? [])
+          .filter((field) => field.changeType === "Major")
+          .map((field) => ({
+            type: "dishes",
+            id: item.id,
+            name: item.name ?? "-",
+            field: field.path ?? "-",
+            before: serializeJsonb(field.beforeValue),
+            after: serializeJsonb(field.afterValue),
+          }))),
+    ];
+
+    const lines = [
+      ["type", "id", "name", "field", "before", "after"].join(","),
+      ...exportRows.map((row) => [
+        escapeCsvCell(row.type),
+        escapeCsvCell(row.id),
+        escapeCsvCell(row.name),
+        escapeCsvCell(row.field),
+        escapeCsvCell(row.before),
+        escapeCsvCell(row.after),
+      ].join(",")),
+    ];
+
+    const csvContent = lines.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeBrand = String(group.brandName ?? "brand").replace(/[^\w-]+/g, "_");
+    const safeMenuId = String(group.menuId ?? "menu").replace(/[^\w-]+/g, "_");
+
+    link.href = url;
+    link.download = `${safeBrand}_${safeMenuId}_comparison_export.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={!comparison}
+                className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </button>
+            </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
             <p className="mt-1 text-xs text-slate-600">
               Menu ID {group.menuId} | {records.length} records
