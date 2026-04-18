@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CircleHelp, Download } from "lucide-react";
 import { CHANGE_TYPE_RULES, CHALLENGE_RULES, compareMessages } from "../utils/compareMessages";
 
@@ -202,6 +202,66 @@ function RulesTable({ itemType }) {
   );
 }
 
+function ColorCodeTable() {
+  return (
+    <div className="rounded border border-slate-200 bg-white p-2">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">Color Code</p>
+      <div className="overflow-x-auto">
+        <table className="min-w-[280px] text-[11px]">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-slate-500">
+              <th className="px-1 py-1">Status</th>
+              <th className="px-1 py-1">Row Highlight</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-slate-100">
+              <td className="px-1 py-1"><span className="font-medium text-slate-700">New</span></td>
+              <td className="px-1 py-1">
+                <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  Light Green
+                </span>
+              </td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="px-1 py-1"><span className="font-medium text-slate-700">Updated</span></td>
+              <td className="px-1 py-1">
+                <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                  Light Yellow
+                </span>
+              </td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="px-1 py-1"><span className="font-medium text-slate-700">Deleted</span></td>
+              <td className="px-1 py-1">
+                <span className="inline-flex items-center rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                  Light Red
+                </span>
+              </td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="px-1 py-1"><span className="font-medium text-slate-700">Stale</span></td>
+              <td className="px-1 py-1">
+                <span className="inline-flex items-center rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">
+                  Light Orange
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td className="px-1 py-1"><span className="font-medium text-slate-700">Unchanged</span></td>
+              <td className="px-1 py-1">
+                <span className="inline-flex items-center rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                  White
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function ChangeTypeCounts({ counts }) {
   const safeCounts = counts ?? { Major: 0, Minor: 0, "Not Relevant": 0 };
 
@@ -220,18 +280,27 @@ function ChangeTypeCounts({ counts }) {
   );
 }
 
-function RulesTooltip({ itemType }) {
+function RulesTooltip({ itemType, label = "?", align = "center", content = null }) {
+  const isIcon = label === "?";
+  const panelPositionClass = align === "left"
+    ? "left-0 translate-x-0"
+    : "left-1/2 -translate-x-1/2";
+
   return (
     <div className="group relative inline-flex">
       <button
         type="button"
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className={
+          isIcon
+            ? "inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            : "inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        }
         aria-label="Show field type rules"
       >
-        <CircleHelp className="h-3.5 w-3.5" />
+        {isIcon ? <CircleHelp className="h-3.5 w-3.5" /> : label}
       </button>
-      <div className="pointer-events-none invisible absolute left-1/2 top-[calc(100%+6px)] z-20 w-[380px] -translate-x-1/2 opacity-0 transition-all group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:visible group-focus-within:opacity-100">
-        <RulesTable itemType={itemType} />
+      <div className={`pointer-events-none invisible absolute top-[calc(100%+6px)] z-50 w-[min(90vw,380px)] opacity-0 transition-all group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:visible group-focus-within:opacity-100 ${panelPositionClass}`}>
+        {content ?? <RulesTable itemType={itemType} />}
       </div>
     </div>
   );
@@ -281,6 +350,335 @@ function serializeJsonb(value) {
   } catch {
     return JSON.stringify(String(value));
   }
+}
+
+function getMenuTitleParentId(item) {
+  const value = item?.after?.parentId ?? item?.before?.parentId;
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+  return String(value);
+}
+
+function sortById(a, b) {
+  return Number(a.id) - Number(b.id);
+}
+
+function buildHierarchy(menuTitleRows, dishRows) {
+  const nodesById = new Map();
+
+  menuTitleRows.forEach((item) => {
+    nodesById.set(String(item.id), {
+      id: String(item.id),
+      item,
+      children: [],
+      dishes: [],
+    });
+  });
+
+  const roots = [];
+
+  nodesById.forEach((node) => {
+    const parentId = getMenuTitleParentId(node.item);
+    const parent = nodesById.get(parentId);
+
+    if (parent) {
+      parent.children.push(node);
+      return;
+    }
+
+    roots.push(node);
+  });
+
+  const orphanDishes = [];
+
+  dishRows.forEach((dish) => {
+    const menuTitleId = String(dish.menuTitleId ?? "");
+    const node = nodesById.get(menuTitleId);
+    if (!node) {
+      orphanDishes.push(dish);
+      return;
+    }
+    node.dishes.push(dish);
+  });
+
+  const sortNode = (node) => {
+    node.children.sort((a, b) => sortById(a.item, b.item));
+    node.dishes.sort(sortById);
+    node.children.forEach(sortNode);
+  };
+
+  roots.sort((a, b) => sortById(a.item, b.item));
+  roots.forEach(sortNode);
+  orphanDishes.sort(sortById);
+
+  return { roots, orphanDishes };
+}
+
+function HierarchyNode({ node, level = 0 }) {
+  const titleItem = node.item;
+  const hasNested = node.children.length > 0 || node.dishes.length > 0;
+  const wrapperClass = level === 0
+    ? "rounded-md border border-slate-200 bg-white"
+    : "rounded-md border border-slate-200 bg-slate-50";
+
+  return (
+    <details open className={wrapperClass}>
+      <summary className="cursor-pointer list-none px-3 py-2 hover:bg-slate-100/70">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <StatusPill status={titleItem.status} />
+          <span className="font-semibold text-slate-900">
+            {level === 0 ? "Parent Menu Title" : "Child Menu Title"}: {titleItem.title || "-"}
+          </span>
+          <span className="text-slate-500">#{titleItem.id}</span>
+          <CurationPill required={Boolean(titleItem.requiresCuration)} />
+          <span className="text-slate-500">
+            {node.children.length} child title{node.children.length !== 1 ? "s" : ""}, {node.dishes.length} dish{node.dishes.length !== 1 ? "es" : ""}
+          </span>
+        </div>
+      </summary>
+
+      {hasNested ? (
+        <div className="space-y-2 border-t border-slate-200 px-3 py-2">
+          {node.children.map((child) => (
+            <HierarchyNode key={child.id} node={child} level={level + 1} />
+          ))}
+
+          {node.dishes.length > 0 ? (
+            <div className="rounded-md border border-slate-200 bg-white p-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Dishes</p>
+              <div className="mt-2 space-y-1.5">
+                {node.dishes.map((dish) => (
+                  <div key={dish.id} className={`rounded border border-slate-200 p-2 text-xs ${rowStyles(dish.status)}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill status={dish.status} />
+                      <span className="font-medium text-slate-900">{dish.name || "-"}</span>
+                      <span className="text-slate-500">#{dish.id}</span>
+                      <CurationPill required={Boolean(dish.requiresCuration)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">No child menu title or dish changes.</div>
+      )}
+    </details>
+  );
+}
+
+function collectTitleIds(nodes, output = []) {
+  nodes.forEach((node) => {
+    output.push(node.id);
+    collectTitleIds(node.children, output);
+  });
+  return output;
+}
+
+function challengeCell(item) {
+  if (!item?.requiresCuration) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        item.challenge === "Hard"
+          ? "border-rose-200 bg-rose-50 text-rose-700"
+          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+      }`}
+    >
+      {item.challenge ?? "Easy"}
+    </span>
+  );
+}
+
+function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
+  const { roots, orphanDishes } = useMemo(
+    () => buildHierarchy(menuTitleRows, dishRows),
+    [menuTitleRows, dishRows],
+  );
+  const [expandedTitles, setExpandedTitles] = useState({});
+
+  useEffect(() => {
+    const allTitleIds = collectTitleIds(roots);
+    const nextExpanded = {};
+    allTitleIds.forEach((id) => {
+      nextExpanded[id] = true;
+    });
+    setExpandedTitles(nextExpanded);
+  }, [roots]);
+
+  const rows = useMemo(() => {
+    const flat = [];
+
+    const walk = (node, depth) => {
+      const hasChildren = node.children.length > 0 || node.dishes.length > 0;
+      flat.push({
+        key: `title-${node.id}`,
+        kind: "menuTitle",
+        depth,
+        hasChildren,
+        isExpanded: Boolean(expandedTitles[node.id]),
+        item: node.item,
+      });
+
+      if (!expandedTitles[node.id]) {
+        return;
+      }
+
+      node.children.forEach((child) => walk(child, depth + 1));
+      node.dishes.forEach((dish) => {
+        flat.push({
+          key: `dish-${dish.id}`,
+          kind: "dish",
+          depth: depth + 1,
+          hasChildren: false,
+          isExpanded: false,
+          item: dish,
+        });
+      });
+    };
+
+    roots.forEach((node) => walk(node, 0));
+
+    orphanDishes.forEach((dish) => {
+      flat.push({
+        key: `orphan-dish-${dish.id}`,
+        kind: "dish",
+        depth: 0,
+        hasChildren: false,
+        isExpanded: false,
+        orphan: true,
+        item: dish,
+      });
+    });
+
+    return flat;
+  }, [expandedTitles, roots, orphanDishes]);
+
+  const toggleTitle = (id) => {
+    setExpandedTitles((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  return (
+    <section className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm">
+      <header className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">Menu Structure</header>
+      <div className="overflow-x-auto">
+        <table className="min-w-full table-fixed border-collapse">
+          <colgroup>
+            <col className="w-36" />
+            <col className="w-[420px]" />
+            <col className="w-52" />
+            <col className="w-36" />
+            <col className="w-72" />
+            <col />
+          </colgroup>
+          <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
+            <tr>
+              <th className="px-3 py-2">ID</th>
+              <th className="px-3 py-2">Title / Name</th>
+              <th className="px-3 py-2">Require Curation</th>
+              <th className="px-3 py-2">Challenge</th>
+              <th className="px-3 py-2">Type Counts</th>
+              <th className="px-3 py-2">Changed Fields</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
+              </tr>
+            ) : (
+              rows.map((row) => {
+                const item = row.item;
+                const label = row.kind === "menuTitle" ? (item.title || "-") : (item.name || "-");
+                const indentPx = row.depth * 20;
+
+                return (
+                  <tr key={row.key} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
+                    <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-start gap-1.5" style={{ paddingLeft: `${indentPx}px` }}>
+                        {row.kind === "menuTitle" && row.hasChildren ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleTitle(item.id)}
+                            className="mt-[2px] inline-flex h-4 w-4 items-center justify-center rounded border border-slate-300 bg-white text-[10px] text-slate-700 hover:bg-slate-100"
+                            aria-label={row.isExpanded ? "Collapse row" : "Expand row"}
+                          >
+                            {row.isExpanded ? "-" : "+"}
+                          </button>
+                        ) : (
+                          <span className="inline-flex h-4 w-4 items-center justify-center text-slate-300">•</span>
+                        )}
+                        <span className={`break-words ${row.kind === "menuTitle" ? "font-semibold text-slate-900" : ""}`}>{label}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <CurationPill required={Boolean(item.requiresCuration)} />
+                    </td>
+                    <td className="px-3 py-2">
+                      {challengeCell(item)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <ChangeTypeCounts counts={item.changeTypeCounts} />
+                    </td>
+                    <td className="px-3 py-2">
+                      {item.changedFields?.length ? (
+                        <details>
+                          <summary className="cursor-pointer text-blue-700 hover:text-blue-900">
+                            {item.changedFields.length} field{item.changedFields.length > 1 ? "s" : ""} changed
+                          </summary>
+                          <div className="mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">
+                            {item.changedFields.map((field) => (
+                              <div key={`${item.id}-${field.path}`} className="mb-2 last:mb-0">
+                                <p className="flex items-center gap-1.5 font-semibold text-slate-700">
+                                  <span>{field.path}</span>
+                                  <span
+                                    className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                                      field.changeType === "Major"
+                                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                                        : field.changeType === "Minor"
+                                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                                          : "border-slate-200 bg-slate-50 text-slate-600"
+                                    }`}
+                                  >
+                                    {field.changeType ?? "Not Relevant"}
+                                  </span>
+                                </p>
+                                <div className="mt-1 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                  <div className="rounded border border-rose-200 bg-rose-50 p-2">
+                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700">Before</p>
+                                    {renderDiffValue(field.beforeValue, "text-rose-700")}
+                                  </div>
+                                  <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
+                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">After</p>
+                                    {renderDiffValue(field.afterValue, "text-emerald-700")}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function ChangesTable({ title, rows, labelKey, itemType }) {
@@ -550,12 +948,19 @@ function BrandComparePage({ group, onBack }) {
         ) : (
           <p className="mt-3 text-xs text-rose-600">Select two different records to compare.</p>
         )}
+
+        {comparison ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <RulesTooltip itemType="menuTitle" label="Menu Title Rules" align="left" />
+            <RulesTooltip itemType="dish" label="Dishes Rules" align="left" />
+            <RulesTooltip label="Color Code" align="left" content={<ColorCodeTable />} />
+          </div>
+        ) : null}
       </header>
 
       {comparison ? (
         <div className="flex flex-col gap-4">
-          <ChangesTable title="Menu Title Comparison (menuTitles.id)" rows={menuTitleRows} labelKey="title" itemType="menuTitle" />
-          <ChangesTable title="Dish Comparison (dishes.id)" rows={dishRows} labelKey="name" itemType="dish" />
+          <UnifiedExpandableTable menuTitleRows={menuTitleRows} dishRows={dishRows} />
         </div>
       ) : null}
     </section>
