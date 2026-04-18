@@ -477,6 +477,43 @@ function collectTitleIds(nodes, output = []) {
   return output;
 }
 
+const STATUS_FILTER_OPTIONS = [
+  { value: "new", label: "New" },
+  { value: "updated", label: "Updated" },
+  { value: "deleted", label: "Deleted" },
+  { value: "stale", label: "Stale" },
+  { value: "unchanged", label: "No Changes" },
+];
+
+function filterHierarchyNodeByStatus(node, selectedStatuses) {
+  const filteredChildren = node.children
+    .map((child) => filterHierarchyNodeByStatus(child, selectedStatuses))
+    .filter(Boolean);
+  const filteredDishes = node.dishes.filter((dish) => selectedStatuses.has(dish.status));
+  const includeSelf = selectedStatuses.has(node.item.status);
+  const keepAsContext = !includeSelf && (filteredChildren.length > 0 || filteredDishes.length > 0);
+
+  if (!includeSelf && !keepAsContext) {
+    return null;
+  }
+
+  return {
+    ...node,
+    children: filteredChildren,
+    dishes: filteredDishes,
+    contextOnly: keepAsContext,
+  };
+}
+
+function filterHierarchyByStatus(roots, orphanDishes, selectedStatuses) {
+  return {
+    roots: roots
+      .map((node) => filterHierarchyNodeByStatus(node, selectedStatuses))
+      .filter(Boolean),
+    orphanDishes: orphanDishes.filter((dish) => selectedStatuses.has(dish.status)),
+  };
+}
+
 function challengeCell(item) {
   if (!item?.requiresCuration) {
     return <span className="text-slate-400">-</span>;
@@ -500,16 +537,32 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
     () => buildHierarchy(menuTitleRows, dishRows),
     [menuTitleRows, dishRows],
   );
+  const [selectedStatuses, setSelectedStatuses] = useState(
+    () => STATUS_FILTER_OPTIONS.map((option) => option.value),
+  );
   const [expandedTitles, setExpandedTitles] = useState({});
+  const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
+  const { roots: filteredRoots, orphanDishes: filteredOrphanDishes } = useMemo(
+    () => filterHierarchyByStatus(roots, orphanDishes, selectedStatusSet),
+    [roots, orphanDishes, selectedStatusSet],
+  );
+
+  const toggleStatus = (status) => {
+    setSelectedStatuses((prev) => (
+      prev.includes(status)
+        ? prev.filter((item) => item !== status)
+        : [...prev, status]
+    ));
+  };
 
   useEffect(() => {
-    const allTitleIds = collectTitleIds(roots);
+    const allTitleIds = collectTitleIds(filteredRoots);
     const nextExpanded = {};
     allTitleIds.forEach((id) => {
       nextExpanded[id] = true;
     });
     setExpandedTitles(nextExpanded);
-  }, [roots]);
+  }, [filteredRoots]);
 
   const rows = useMemo(() => {
     const flat = [];
@@ -542,9 +595,9 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
       });
     };
 
-    roots.forEach((node) => walk(node, 0));
+    filteredRoots.forEach((node) => walk(node, 0));
 
-    orphanDishes.forEach((dish) => {
+    filteredOrphanDishes.forEach((dish) => {
       flat.push({
         key: `orphan-dish-${dish.id}`,
         kind: "dish",
@@ -557,7 +610,7 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
     });
 
     return flat;
-  }, [expandedTitles, roots, orphanDishes]);
+  }, [expandedTitles, filteredRoots, filteredOrphanDishes]);
 
   const toggleTitle = (id) => {
     setExpandedTitles((prev) => ({
@@ -569,7 +622,26 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
   return (
     <section className="overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm">
       <header className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">Menu Structure</header>
-      <div className="overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-3 py-2">
+        <span className="text-xs font-semibold text-slate-700">Filter Status</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {STATUS_FILTER_OPTIONS.map((option) => {
+            const checked = selectedStatuses.includes(option.value);
+            return (
+              <label key={option.value} className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={checked}
+                  onChange={() => toggleStatus(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+      <div className="max-h-[70vh] overflow-auto">
         <table className="min-w-full table-fixed border-collapse">
           <colgroup>
             <col className="w-36" />
@@ -581,12 +653,12 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
           </colgroup>
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
             <tr>
-              <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">Title / Name</th>
-              <th className="px-3 py-2">Require Curation</th>
-              <th className="px-3 py-2">Challenge</th>
-              <th className="px-3 py-2">Type Counts</th>
-              <th className="px-3 py-2">Changed Fields</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">ID</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Title / Name</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Require Curation</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Challenge</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Type Counts</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             </tr>
           </thead>
           <tbody>
@@ -618,6 +690,11 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
                           <span className="inline-flex h-4 w-4 items-center justify-center text-slate-300">•</span>
                         )}
                         <span className={`break-words ${row.kind === "menuTitle" ? "font-semibold text-slate-900" : ""}`}>{label}</span>
+                        {row.contextOnly ? (
+                          <span className="inline-flex items-center rounded border border-slate-300 bg-slate-100 px-1 py-0.5 text-[10px] font-semibold text-slate-600">
+                            Context
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-3 py-2">
