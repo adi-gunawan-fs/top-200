@@ -95,11 +95,8 @@ function CurationPill({ required }) {
 }
 
 function formatValue(value) {
-  if (value === null) {
-    return "null";
-  }
-  if (value === undefined) {
-    return "undefined";
+  if (value === null || value === undefined) {
+    return "";
   }
   if (typeof value === "string") {
     return value;
@@ -116,9 +113,13 @@ function isStructuredValue(value) {
 }
 
 function renderDiffValue(value, toneClass) {
+  if (value === null || value === undefined) {
+    return <p className={`text-[11px] break-words ${toneClass}`}>&nbsp;</p>;
+  }
+
   if (isStructuredValue(value)) {
     return (
-      <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded border border-slate-200 bg-white p-2 text-[11px] ${toneClass}`}>
+      <pre className={`overflow-x-auto whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
         {JSON.stringify(value, null, 2)}
       </pre>
     );
@@ -345,8 +346,8 @@ function escapeCsvCell(value) {
 }
 
 function serializeJsonb(value) {
-  if (value === undefined) {
-    return "null";
+  if (value === undefined || value === null) {
+    return "";
   }
 
   try {
@@ -488,6 +489,93 @@ const STATUS_FILTER_OPTIONS = [
   { value: "unchanged", label: "No Changes" },
 ];
 
+const RELEVANCY_FILTER_OPTIONS = [
+  { value: "Relevant", label: "Relevant", defaultChecked: true },
+  { value: "Not Relevant", label: "Not Relevant", defaultChecked: false },
+];
+
+function getFieldRelevancy(field) {
+  return field?.changeType === "Relevant" ? "Relevant" : "Not Relevant";
+}
+
+function shouldHideChangedField(item, field) {
+  if (item?.status !== "new") {
+    return false;
+  }
+
+  if (field?.afterValue === null || field?.afterValue === undefined) {
+    return true;
+  }
+
+  return Array.isArray(field?.afterValue) && field.afterValue.length === 0;
+}
+
+function filterChangedFieldsByRelevancy(changedFields, selectedRelevancies) {
+  return (changedFields ?? []).filter((field) => selectedRelevancies.has(getFieldRelevancy(field)));
+}
+
+function getVisibleChangeTypeCounts(changedFields) {
+  return changedFields.reduce(
+    (counts, field) => {
+      counts[getFieldRelevancy(field)] += 1;
+      return counts;
+    },
+    { Relevant: 0, "Not Relevant": 0 },
+  );
+}
+
+function ChangedFieldsCell({ item, selectedRelevancies }) {
+  const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancies)
+    .filter((field) => !shouldHideChangedField(item, field));
+
+  if (!visibleChangedFields.length) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <details>
+      <summary className="cursor-pointer text-blue-700 hover:text-blue-900">
+        {visibleChangedFields.length} field{visibleChangedFields.length > 1 ? "s" : ""} changed
+      </summary>
+      <div className="mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-white">
+        <table className="min-w-full table-fixed border-collapse text-xs">
+          <colgroup>
+            <col className="w-64" />
+            <col className="w-[calc(50%-8rem)]" />
+            <col className="w-[calc(50%-8rem)]" />
+          </colgroup>
+          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="border-b border-slate-200 px-3 py-2 text-left">Field</th>
+              <th className="border-b border-slate-200 px-3 py-2 text-left">Before</th>
+              <th className="border-b border-slate-200 px-3 py-2 text-left">After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleChangedFields.map((field) => (
+              <tr key={`${item.id}-${field.path}`} className="align-top">
+                <td className="border-b border-slate-200 px-3 py-2 font-semibold text-slate-700">
+                  <span className="break-all">{field.path}</span>
+                </td>
+                <td className="border-b border-slate-200 px-3 py-2 text-slate-700">
+                  <div>
+                    {renderDiffValue(field.beforeValue, "text-slate-700")}
+                  </div>
+                </td>
+                <td className="border-b border-slate-200 px-3 py-2 text-slate-700">
+                  <div>
+                    {renderDiffValue(field.afterValue, "text-slate-700")}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 function filterHierarchyNodeByStatus(node, selectedStatuses) {
   const filteredChildren = node.children
     .map((child) => filterHierarchyNodeByStatus(child, selectedStatuses))
@@ -545,8 +633,14 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
       .filter((option) => option.value !== "deleted" && option.value !== "unchanged")
       .map((option) => option.value),
   );
+  const [selectedRelevancies, setSelectedRelevancies] = useState(
+    () => RELEVANCY_FILTER_OPTIONS
+      .filter((option) => option.defaultChecked)
+      .map((option) => option.value),
+  );
   const [expandedTitles, setExpandedTitles] = useState({});
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
+  const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const { roots: filteredRoots, orphanDishes: filteredOrphanDishes } = useMemo(
     () => filterHierarchyByStatus(roots, orphanDishes, selectedStatusSet),
     [roots, orphanDishes, selectedStatusSet],
@@ -557,6 +651,14 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
       prev.includes(status)
         ? prev.filter((item) => item !== status)
         : [...prev, status]
+    ));
+  };
+
+  const toggleRelevancy = (relevancy) => {
+    setSelectedRelevancies((prev) => (
+      prev.includes(relevancy)
+        ? prev.filter((item) => item !== relevancy)
+        : [...prev, relevancy]
     ));
   };
 
@@ -645,6 +747,23 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
             );
           })}
         </div>
+        <span className="text-xs font-semibold text-slate-700">Relevancies</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {RELEVANCY_FILTER_OPTIONS.map((option) => {
+            const checked = selectedRelevancies.includes(option.value);
+            return (
+              <label key={option.value} className="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={checked}
+                  onChange={() => toggleRelevancy(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })}
+        </div>
       </div>
       <div className="max-h-[70vh] overflow-auto">
         <table className="min-w-full table-fixed border-collapse">
@@ -676,6 +795,9 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
                 const item = row.item;
                 const label = row.kind === "menuTitle" ? (item.title || "-") : (item.name || "-");
                 const indentPx = row.depth * 20;
+                const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
+                  .filter((field) => !shouldHideChangedField(item, field));
+                const visibleChangeTypeCounts = getVisibleChangeTypeCounts(visibleChangedFields);
 
                 return (
                   <tr key={row.key} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
@@ -709,46 +831,10 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
                       {challengeCell(item)}
                     </td>
                     <td className="px-3 py-2">
-                      <ChangeTypeCounts counts={item.changeTypeCounts} />
+                      <ChangeTypeCounts counts={visibleChangeTypeCounts} />
                     </td>
                     <td className="px-3 py-2">
-                      {item.changedFields?.length ? (
-                        <details>
-                          <summary className="cursor-pointer text-blue-700 hover:text-blue-900">
-                            {item.changedFields.length} field{item.changedFields.length > 1 ? "s" : ""} changed
-                          </summary>
-                          <div className="mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">
-                            {item.changedFields.map((field) => (
-                              <div key={`${item.id}-${field.path}`} className="mb-2 last:mb-0">
-                                <p className="flex items-center gap-1.5 font-semibold text-slate-700">
-                                  <span>{field.path}</span>
-                                  <span
-                                    className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                      field.changeType === "Relevant"
-                                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                                        : "border-slate-200 bg-slate-50 text-slate-600"
-                                    }`}
-                                  >
-                                    {field.changeType ?? "Not Relevant"}
-                                  </span>
-                                </p>
-                                <div className="mt-1 grid grid-cols-1 gap-2 md:grid-cols-2">
-                                  <div className="rounded border border-rose-200 bg-rose-50 p-2">
-                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700">Before</p>
-                                    {renderDiffValue(field.beforeValue, "text-rose-700")}
-                                  </div>
-                                  <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
-                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">After</p>
-                                    {renderDiffValue(field.afterValue, "text-emerald-700")}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      ) : (
-                        <span className="text-slate-400">-</span>
-                      )}
+                      <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
                     </td>
                   </tr>
                 );
@@ -984,6 +1070,7 @@ function BrandComparePage({ group, onBack }) {
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
           .filter((field) => field.changeType === "Relevant")
+          .filter((field) => !shouldHideChangedField(item, field))
           .map((field) => ({
             type: "menuTitle",
             id: item.id,
@@ -996,6 +1083,7 @@ function BrandComparePage({ group, onBack }) {
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
           .filter((field) => field.changeType === "Relevant")
+          .filter((field) => !shouldHideChangedField(item, field))
           .map((field) => ({
             type: "dishes",
             id: item.id,
