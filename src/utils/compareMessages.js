@@ -5,33 +5,33 @@ function asArray(value) {
 export const CHANGE_TYPE_RULES = {
   dish: {
     id: "Not Relevant",
-    name: "Major",
-    diets: "Major",
-    price: "Minor",
-    addons: "Major",
+    name: "Relevant",
+    diets: "Relevant",
+    price: "Not Relevant",
+    addons: "Relevant",
     menuId: "Not Relevant",
     calories: "Not Relevant",
-    miscInfo: "Major",
-    allergens: "Major",
+    miscInfo: "Not Relevant",
+    allergens: "Relevant",
     modifiedAt: "Not Relevant",
     nutritions: "Not Relevant",
-    descriptions: "Major",
-    ingredients: "Major",
+    descriptions: "Relevant",
+    ingredients: "Relevant",
     menuTitleId: "Not Relevant",
   },
   menuTitle: {
     id: "Not Relevant",
-    diets: "Major",
-    title: "Major",
-    addons: "Major",
+    diets: "Relevant",
+    title: "Relevant",
+    addons: "Relevant",
     menuId: "Not Relevant",
     calories: "Not Relevant",
-    miscInfo: "Major",
+    miscInfo: "Not Relevant",
     parentId: "Not Relevant",
-    allergens: "Major",
+    allergens: "Relevant",
     modifiedAt: "Not Relevant",
     nutritions: "Not Relevant",
-    description: "Major",
+    description: "Relevant",
   },
 };
 
@@ -44,7 +44,7 @@ export const CHALLENGE_RULES = {
     addons: "Hard",
     menuId: "Not Relevant",
     calories: "Not Relevant",
-    miscInfo: "Hard",
+    miscInfo: "Not Relevant",
     allergens: "Easy",
     modifiedAt: "Not Relevant",
     nutritions: "Not Relevant",
@@ -59,7 +59,7 @@ export const CHALLENGE_RULES = {
     addons: "Hard",
     menuId: "Not Relevant",
     calories: "Not Relevant",
-    miscInfo: "Hard",
+    miscInfo: "Not Relevant",
     parentId: "Not Relevant",
     allergens: "Easy",
     modifiedAt: "Not Relevant",
@@ -68,7 +68,7 @@ export const CHALLENGE_RULES = {
   },
 };
 
-const CHANGE_TYPE_KEYS = ["Major", "Minor", "Not Relevant"];
+const CHANGE_TYPE_KEYS = ["Relevant", "Not Relevant"];
 const CHALLENGE_KEYS = ["Easy", "Hard", "Not Relevant"];
 
 function isPlainObject(value) {
@@ -201,8 +201,7 @@ function enrichChangedFields(itemType, changedFields) {
 
 function countChangeTypes(changedFields) {
   const counts = {
-    Major: 0,
-    Minor: 0,
+    Relevant: 0,
     "Not Relevant": 0,
   };
 
@@ -274,7 +273,7 @@ function compareModifiedAt(beforeItem, afterItem) {
     return "updated";
   }
 
-  return "stale";
+  return "unchanged";
 }
 
 function baseResult(beforeItem, afterItem) {
@@ -306,7 +305,6 @@ function ensureDishStatus(target, status, reason) {
     deleted: 4,
     new: 3,
     updated: 2,
-    stale: 1,
     unchanged: 0,
   };
 
@@ -327,11 +325,9 @@ export function compareMessages(beforeRecord, afterRecord) {
   const beforeMenuModifiedAt = beforeMenu.modifiedAt ?? "";
   const afterMenuModifiedAt = afterMenu.modifiedAt ?? "";
 
-  const menuStatus = beforeMenuModifiedAt === afterMenuModifiedAt
-    ? "unchanged"
-    : Date.parse(afterMenuModifiedAt) > Date.parse(beforeMenuModifiedAt)
-      ? "updated"
-      : "stale";
+  const menuStatus = Date.parse(afterMenuModifiedAt) > Date.parse(beforeMenuModifiedAt)
+    ? "updated"
+    : "unchanged";
 
   const shouldProcess = menuStatus === "updated";
 
@@ -369,9 +365,7 @@ export function compareMessages(beforeRecord, afterRecord) {
             ? "menu title deleted"
             : status === "updated"
               ? "menu title modifiedAt is newer"
-              : status === "stale"
-                ? "menu title modifiedAt is older"
-                : "menu title unchanged",
+              : "menu title unchanged",
       requiresCuration: status === "new" || status === "updated",
     };
     item.challenge = getItemChallenge(item.changedFields, item.requiresCuration);
@@ -411,9 +405,7 @@ export function compareMessages(beforeRecord, afterRecord) {
             ? "dish removed from new message"
             : status === "updated"
               ? "dish modifiedAt is newer"
-              : status === "stale"
-                ? "dish modifiedAt is older"
-                : "dish unchanged",
+              : "dish unchanged",
       requiresCuration: status === "new" || status === "updated",
     };
     result.challenge = getItemChallenge(result.changedFields, result.requiresCuration);
@@ -471,7 +463,6 @@ export function compareMessages(beforeRecord, afterRecord) {
       updated: dishChanges.filter((item) => item.status === "updated").length,
       deleted: dishChanges.filter((item) => item.status === "deleted").length,
       unchanged: dishChanges.filter((item) => item.status === "unchanged").length,
-      stale: dishChanges.filter((item) => item.status === "stale").length,
       requiresCuration: dishChanges.filter((item) => item.requiresCuration).length,
     },
     menuTitles: {
@@ -479,7 +470,6 @@ export function compareMessages(beforeRecord, afterRecord) {
       updated: menuTitleChanges.filter((item) => item.status === "updated").length,
       deleted: menuTitleChanges.filter((item) => item.status === "deleted").length,
       unchanged: menuTitleChanges.filter((item) => item.status === "unchanged").length,
-      stale: menuTitleChanges.filter((item) => item.status === "stale").length,
       requiresCuration: menuTitleChanges.filter((item) => item.requiresCuration).length,
     },
   };
@@ -502,10 +492,10 @@ export function compareMessages(beforeRecord, afterRecord) {
       status: menuStatus,
       shouldProcess,
       reason:
-        menuStatus === "unchanged"
-          ? "ignored: menu.modifiedAt is unchanged"
-          : menuStatus === "updated"
-            ? "process: menu.modifiedAt is newer"
+        menuStatus === "updated"
+          ? "process: menu.modifiedAt is newer"
+          : beforeMenuModifiedAt === afterMenuModifiedAt
+            ? "ignored: menu.modifiedAt is unchanged"
             : "ignored: menu.modifiedAt is older than before",
     },
     changes: {

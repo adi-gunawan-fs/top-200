@@ -7,10 +7,7 @@ function formatDate(value) {
     return "-";
   }
 
-  const normalized = String(value)
-    .trim()
-    .replace(" ", "T")
-    .replace(/([+-]\d{2})$/, "$1:00");
+  const normalized = normalizeDateInput(value);
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.valueOf())) {
     return value;
@@ -27,6 +24,26 @@ function formatDate(value) {
   }).replace(",", "");
 }
 
+function normalizeDateInput(value) {
+  return String(value)
+    .trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+/, "$1T")
+    .replace(/\s+([+-]\d{2}(?::?\d{2})?)$/, "$1")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2")
+    .replace(/([+-]\d{2})$/, "$1:00");
+}
+
+function parseDateValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = normalizeDateInput(value);
+  const timestamp = Date.parse(normalized);
+
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
 function statusStyles(status) {
   if (status === "new") {
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -36,9 +53,6 @@ function statusStyles(status) {
   }
   if (status === "deleted") {
     return "bg-rose-50 text-rose-700 border-rose-200";
-  }
-  if (status === "stale") {
-    return "bg-orange-50 text-orange-700 border-orange-200";
   }
   return "bg-slate-50 text-slate-700 border-slate-200";
 }
@@ -52,9 +66,6 @@ function rowStyles(status) {
   }
   if (status === "deleted") {
     return "bg-rose-50/40";
-  }
-  if (status === "stale") {
-    return "bg-orange-50/40";
   }
   return "bg-white";
 }
@@ -116,7 +127,7 @@ function renderDiffValue(value, toneClass) {
   return <p className={`text-[11px] break-words ${toneClass}`}>{formatValue(value)}</p>;
 }
 
-function RecordSelect({ label, value, onChange, records, blockedValue }) {
+function RecordSelect({ label, value, onChange, records, getOptionDisableReason }) {
   return (
     <label className="flex flex-col gap-1 text-xs text-slate-700">
       <span className="font-medium">{label}</span>
@@ -128,10 +139,17 @@ function RecordSelect({ label, value, onChange, records, blockedValue }) {
         <option value="">Select a record</option>
         {records.map((record) => {
           const key = String(record.id);
-          const disabled = blockedValue && blockedValue === key;
+          const disableReason = getOptionDisableReason ? getOptionDisableReason(record) : null;
+          const disabled = Boolean(disableReason);
+          const optionLabel = `${formatDate(record.updatedAt)} | #${record.id}${disableReason ? ` (${disableReason})` : ""}`;
           return (
-            <option key={key} value={key} disabled={disabled}>
-              {formatDate(record.updatedAt)} | #{record.id}
+            <option
+              key={key}
+              value={key}
+              disabled={disabled}
+              className={disabled ? "text-slate-400" : ""}
+            >
+              {optionLabel}
             </option>
           );
         })}
@@ -141,11 +159,8 @@ function RecordSelect({ label, value, onChange, records, blockedValue }) {
 }
 
 function ChangeTypeBadge({ type }) {
-  if (type === "Major") {
-    return <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">Major</span>;
-  }
-  if (type === "Minor") {
-    return <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">Minor</span>;
+  if (type === "Relevant") {
+    return <span className="rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">Relevant</span>;
   }
   return <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">Not Relevant</span>;
 }
@@ -239,14 +254,6 @@ function ColorCodeTable() {
                 </span>
               </td>
             </tr>
-            <tr className="border-b border-slate-100">
-              <td className="px-1 py-1"><span className="font-medium text-slate-700">Stale</span></td>
-              <td className="px-1 py-1">
-                <span className="inline-flex items-center rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">
-                  Light Orange
-                </span>
-              </td>
-            </tr>
             <tr>
               <td className="px-1 py-1"><span className="font-medium text-slate-700">Unchanged</span></td>
               <td className="px-1 py-1">
@@ -263,15 +270,12 @@ function ColorCodeTable() {
 }
 
 function ChangeTypeCounts({ counts }) {
-  const safeCounts = counts ?? { Major: 0, Minor: 0, "Not Relevant": 0 };
+  const safeCounts = counts ?? { Relevant: 0, "Not Relevant": 0 };
 
   return (
     <div className="flex flex-wrap gap-1.5">
       <span className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-        Major: {safeCounts.Major ?? 0}
-      </span>
-      <span className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-        Minor: {safeCounts.Minor ?? 0}
+        Relevant: {safeCounts.Relevant ?? 0}
       </span>
       <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
         Not Relevant: {safeCounts["Not Relevant"] ?? 0}
@@ -481,7 +485,6 @@ const STATUS_FILTER_OPTIONS = [
   { value: "new", label: "New" },
   { value: "updated", label: "Updated" },
   { value: "deleted", label: "Deleted" },
-  { value: "stale", label: "Stale" },
   { value: "unchanged", label: "No Changes" },
 ];
 
@@ -538,7 +541,9 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
     [menuTitleRows, dishRows],
   );
   const [selectedStatuses, setSelectedStatuses] = useState(
-    () => STATUS_FILTER_OPTIONS.map((option) => option.value),
+    () => STATUS_FILTER_OPTIONS
+      .filter((option) => option.value !== "deleted" && option.value !== "unchanged")
+      .map((option) => option.value),
   );
   const [expandedTitles, setExpandedTitles] = useState({});
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
@@ -719,11 +724,9 @@ function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
                                   <span>{field.path}</span>
                                   <span
                                     className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                      field.changeType === "Major"
+                                      field.changeType === "Relevant"
                                         ? "border-rose-200 bg-rose-50 text-rose-700"
-                                        : field.changeType === "Minor"
-                                          ? "border-amber-200 bg-amber-50 text-amber-700"
-                                          : "border-slate-200 bg-slate-50 text-slate-600"
+                                        : "border-slate-200 bg-slate-50 text-slate-600"
                                     }`}
                                   >
                                     {field.changeType ?? "Not Relevant"}
@@ -827,11 +830,9 @@ function ChangesTable({ title, rows, labelKey, itemType }) {
                               <span>{field.path}</span>
                               <span
                                 className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  field.changeType === "Major"
+                                  field.changeType === "Relevant"
                                     ? "border-rose-200 bg-rose-50 text-rose-700"
-                                    : field.changeType === "Minor"
-                                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                                      : "border-slate-200 bg-slate-50 text-slate-600"
+                                    : "border-slate-200 bg-slate-50 text-slate-600"
                                 }`}
                               >
                                 {field.changeType ?? "Not Relevant"}
@@ -868,6 +869,17 @@ function BrandComparePage({ group, onBack }) {
   const records = group.records ?? [];
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
+  const recordsWithIndex = useMemo(
+    () => records.map((record, index) => ({ record, index })),
+    [records],
+  );
+  const recordTimeById = useMemo(() => {
+    const map = new Map();
+    records.forEach((record) => {
+      map.set(String(record.id), parseDateValue(record.updatedAt));
+    });
+    return map;
+  }, [records]);
 
   useEffect(() => {
     if (records.length === 0) {
@@ -876,20 +888,91 @@ function BrandComparePage({ group, onBack }) {
       return;
     }
 
-    const latest = records[records.length - 1];
-    const before = records[records.length - 2] ?? records[0];
+    const sorted = [...recordsWithIndex].sort((a, b) => {
+      const aTime = parseDateValue(a.record.updatedAt);
+      const bTime = parseDateValue(b.record.updatedAt);
+
+      if (aTime !== null && bTime !== null && aTime !== bTime) {
+        return aTime - bTime;
+      }
+
+      return a.index - b.index;
+    });
+
+    const latest = sorted[sorted.length - 1]?.record ?? records[records.length - 1];
+    const before = sorted[sorted.length - 2]?.record ?? sorted[0]?.record ?? records[0];
 
     setBeforeId(String(before.id));
     setAfterId(String(latest.id));
-  }, [group.key]);
+  }, [group.key, records, recordsWithIndex]);
 
   const beforeRecord = records.find((record) => String(record.id) === beforeId);
   const afterRecord = records.find((record) => String(record.id) === afterId);
-  const isValidSelection = beforeRecord && afterRecord && beforeRecord.id !== afterRecord.id;
+  const beforeTime = beforeId ? recordTimeById.get(beforeId) ?? null : null;
+  const afterTime = afterId ? recordTimeById.get(afterId) ?? null : null;
+  const isChronologicalSelection = beforeRecord && afterRecord
+    ? beforeTime === null || afterTime === null || afterTime >= beforeTime
+    : false;
+  const isValidSelection = beforeRecord && afterRecord && beforeRecord.id !== afterRecord.id && isChronologicalSelection;
   const comparison = isValidSelection ? compareMessages(beforeRecord, afterRecord) : null;
+  const invalidOrderSelection = Boolean(
+    beforeRecord
+    && afterRecord
+    && beforeRecord.id !== afterRecord.id
+    && !isChronologicalSelection,
+  );
+  const selectionMessage = invalidOrderSelection
+    ? "After (updatedAt) must be newer than or equal to Before (updatedAt)."
+    : "Select two different records to compare.";
 
   const dishRows = comparison ? comparison.changes.dishes : [];
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
+
+  function getBeforeOptionDisableReason(record) {
+    const key = String(record.id);
+    if (afterId && key === afterId) {
+      return "same as After";
+    }
+
+    if (!afterId) {
+      return null;
+    }
+
+    const candidateTime = recordTimeById.get(key);
+    const selectedAfterTime = recordTimeById.get(afterId) ?? null;
+    if (candidateTime === null || selectedAfterTime === null) {
+      return null;
+    }
+
+    if (candidateTime > selectedAfterTime) {
+      return "newer than After";
+    }
+
+    return null;
+  }
+
+  function getAfterOptionDisableReason(record) {
+    const key = String(record.id);
+    if (beforeId && key === beforeId) {
+      return "same as Before";
+    }
+
+    if (!beforeId) {
+      return null;
+    }
+
+    const candidateTime = recordTimeById.get(key);
+    const selectedBeforeTime = recordTimeById.get(beforeId) ?? null;
+    if (candidateTime === null || selectedBeforeTime === null) {
+      return null;
+    }
+
+    if (candidateTime < selectedBeforeTime) {
+      return "older than Before";
+    }
+
+    return null;
+  }
 
   function handleExportCsv() {
     if (!comparison) {
@@ -900,7 +983,7 @@ function BrandComparePage({ group, onBack }) {
       ...menuTitleRows
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => field.changeType === "Major")
+          .filter((field) => field.changeType === "Relevant")
           .map((field) => ({
             type: "menuTitle",
             id: item.id,
@@ -912,7 +995,7 @@ function BrandComparePage({ group, onBack }) {
       ...dishRows
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => field.changeType === "Major")
+          .filter((field) => field.changeType === "Relevant")
           .map((field) => ({
             type: "dishes",
             id: item.id,
@@ -986,17 +1069,20 @@ function BrandComparePage({ group, onBack }) {
               value={beforeId}
               onChange={setBeforeId}
               records={records}
-              blockedValue={afterId}
+              getOptionDisableReason={getBeforeOptionDisableReason}
             />
             <RecordSelect
               label="After (updatedAt)"
               value={afterId}
               onChange={setAfterId}
               records={records}
-              blockedValue={beforeId}
+              getOptionDisableReason={getAfterOptionDisableReason}
             />
           </div>
         </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          Disabled options are marked in the dropdown, for example: <span className="font-semibold">(older than Before)</span>.
+        </p>
 
         {comparison ? (
           <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-5">
@@ -1023,7 +1109,7 @@ function BrandComparePage({ group, onBack }) {
             <SummarySingle label="Menu Titles Require Curation" value={comparison.summary.menuTitles.requiresCuration} />
           </div>
         ) : (
-          <p className="mt-3 text-xs text-rose-600">Select two different records to compare.</p>
+          <p className="mt-3 text-xs text-rose-600">{selectionMessage}</p>
         )}
 
         {comparison ? (
