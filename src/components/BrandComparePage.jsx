@@ -108,6 +108,10 @@ function formatValue(value) {
   }
 }
 
+function getCharacterCount(value) {
+  return formatValue(value).length;
+}
+
 function isStructuredValue(value) {
   return value !== null && typeof value === "object";
 }
@@ -564,14 +568,16 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
         <table className="min-w-full table-fixed border-collapse text-xs">
           <colgroup>
             <col className="w-64" />
-            <col className="w-[calc(50%-8rem)]" />
-            <col className="w-[calc(50%-8rem)]" />
+            <col className="w-[calc(50%-12rem)]" />
+            <col className="w-[calc(50%-12rem)]" />
+            <col className="w-32" />
           </colgroup>
           <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="border-b border-slate-200 px-3 py-2 text-left">Field</th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">Before</th>
               <th className="border-b border-slate-200 px-3 py-2 text-left">After</th>
+              <th className="border-b border-slate-200 px-3 py-2 text-left">Char Count</th>
             </tr>
           </thead>
           <tbody>
@@ -588,6 +594,12 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
                 <td className="border-b border-slate-200 px-3 py-2 text-slate-700">
                   <div>
                     {renderDiffValue(field.afterValue, "text-slate-700")}
+                  </div>
+                </td>
+                <td className="border-b border-slate-200 px-3 py-2 text-[11px] text-slate-600">
+                  <div className="space-y-1">
+                    <p>Before: {getCharacterCount(field.beforeValue)}</p>
+                    <p>After: {getCharacterCount(field.afterValue)}</p>
                   </div>
                 </td>
               </tr>
@@ -790,25 +802,23 @@ function UnifiedExpandableTable({
           <colgroup>
             <col className="w-36" />
             <col className="w-[420px]" />
-            <col className="w-52" />
             <col className="w-36" />
-            <col className="w-72" />
-            <col />
+            <col className="w-60" />
+            <col className="w-[560px]" />
           </colgroup>
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
             <tr>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">ID</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Title / Name</th>
-              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Require Curation</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Challenge</th>
-              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Type Counts</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
+                <td colSpan={5} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
               </tr>
             ) : (
               rows.map((row) => {
@@ -845,9 +855,6 @@ function UnifiedExpandableTable({
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      <CurationPill required={Boolean(item.requiresCuration)} />
-                    </td>
-                    <td className="px-3 py-2">
                       {challengeCell(item)}
                     </td>
                     <td className="px-3 py-2">
@@ -880,19 +887,17 @@ function ChangesTable({ title, rows, labelKey, itemType }) {
             <col className="w-28" />
             <col className="w-36" />
             <col className="w-80" />
-            <col className="w-52" />
             <col className="w-36" />
-            <col className="w-72" />
-            <col />
+            <col className="w-60" />
+            <col className="w-[560px]" />
           </colgroup>
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
             <tr>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">ID</th>
               <th className="px-3 py-2">{labelKey}</th>
-              <th className="px-3 py-2">Require Curation</th>
               <th className="px-3 py-2">Challenge</th>
-              <th className="px-3 py-2">Type Counts</th>
+              <th className="px-3 py-2">Relevancies</th>
               <th className="px-3 py-2">Changed Fields</th>
             </tr>
           </thead>
@@ -902,9 +907,6 @@ function ChangesTable({ title, rows, labelKey, itemType }) {
                 <td className="px-3 py-2"><StatusPill status={item.status} /></td>
                 <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
                 <td className="px-3 py-2">{item[labelKey] || "-"}</td>
-                <td className="px-3 py-2">
-                  <CurationPill required={Boolean(item.requiresCuration)} />
-                </td>
                 <td className="px-3 py-2">
                   {item.requiresCuration ? (
                     <span
