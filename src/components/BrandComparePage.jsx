@@ -345,15 +345,30 @@ function escapeCsvCell(value) {
   return `"${escaped}"`;
 }
 
+function flattenExportText(value) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 function serializeJsonb(value) {
   if (value === undefined || value === null) {
     return "";
   }
 
+  if (typeof value === "string") {
+    return flattenExportText(value);
+  }
+
   try {
-    return JSON.stringify(value ?? null);
+    return typeof value === "object"
+      ? JSON.stringify(value ?? null)
+      : flattenExportText(value);
   } catch {
-    return JSON.stringify(String(value));
+    return flattenExportText(value);
   }
 }
 
@@ -494,6 +509,14 @@ const RELEVANCY_FILTER_OPTIONS = [
   { value: "Not Relevant", label: "Not Relevant", defaultChecked: false },
 ];
 
+const DEFAULT_SELECTED_STATUSES = STATUS_FILTER_OPTIONS
+  .filter((option) => option.value !== "deleted" && option.value !== "unchanged")
+  .map((option) => option.value);
+
+const DEFAULT_SELECTED_RELEVANCIES = RELEVANCY_FILTER_OPTIONS
+  .filter((option) => option.defaultChecked)
+  .map((option) => option.value);
+
 function getFieldRelevancy(field) {
   return field?.changeType === "Relevant" ? "Relevant" : "Not Relevant";
 }
@@ -623,20 +646,17 @@ function challengeCell(item) {
   );
 }
 
-function UnifiedExpandableTable({ menuTitleRows, dishRows }) {
+function UnifiedExpandableTable({
+  menuTitleRows,
+  dishRows,
+  selectedStatuses,
+  setSelectedStatuses,
+  selectedRelevancies,
+  setSelectedRelevancies,
+}) {
   const { roots, orphanDishes } = useMemo(
     () => buildHierarchy(menuTitleRows, dishRows),
     [menuTitleRows, dishRows],
-  );
-  const [selectedStatuses, setSelectedStatuses] = useState(
-    () => STATUS_FILTER_OPTIONS
-      .filter((option) => option.value !== "deleted" && option.value !== "unchanged")
-      .map((option) => option.value),
-  );
-  const [selectedRelevancies, setSelectedRelevancies] = useState(
-    () => RELEVANCY_FILTER_OPTIONS
-      .filter((option) => option.defaultChecked)
-      .map((option) => option.value),
   );
   const [expandedTitles, setExpandedTitles] = useState({});
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
@@ -955,6 +975,8 @@ function BrandComparePage({ group, onBack }) {
   const records = group.records ?? [];
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState(DEFAULT_SELECTED_STATUSES);
+  const [selectedRelevancies, setSelectedRelevancies] = useState(DEFAULT_SELECTED_RELEVANCIES);
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
     [records],
@@ -992,8 +1014,15 @@ function BrandComparePage({ group, onBack }) {
     setAfterId(String(latest.id));
   }, [group.key, records, recordsWithIndex]);
 
+  useEffect(() => {
+    setSelectedStatuses(DEFAULT_SELECTED_STATUSES);
+    setSelectedRelevancies(DEFAULT_SELECTED_RELEVANCIES);
+  }, [group.key]);
+
   const beforeRecord = records.find((record) => String(record.id) === beforeId);
   const afterRecord = records.find((record) => String(record.id) === afterId);
+  const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
+  const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const beforeTime = beforeId ? recordTimeById.get(beforeId) ?? null : null;
   const afterTime = afterId ? recordTimeById.get(afterId) ?? null : null;
   const isChronologicalSelection = beforeRecord && afterRecord
@@ -1065,11 +1094,14 @@ function BrandComparePage({ group, onBack }) {
       return;
     }
 
+    const visibleMenuTitleRows = menuTitleRows.filter((item) => selectedStatusSet.has(item.status));
+    const visibleDishRows = dishRows.filter((item) => selectedStatusSet.has(item.status));
+
     const exportRows = [
-      ...menuTitleRows
+      ...visibleMenuTitleRows
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => field.changeType === "Relevant")
+          .filter((field) => selectedRelevancySet.has(getFieldRelevancy(field)))
           .filter((field) => !shouldHideChangedField(item, field))
           .map((field) => ({
             type: "menuTitle",
@@ -1079,10 +1111,10 @@ function BrandComparePage({ group, onBack }) {
             before: serializeJsonb(field.beforeValue),
             after: serializeJsonb(field.afterValue),
           }))),
-      ...dishRows
+      ...visibleDishRows
         .filter((item) => item.status !== "deleted")
         .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => field.changeType === "Relevant")
+          .filter((field) => selectedRelevancySet.has(getFieldRelevancy(field)))
           .filter((field) => !shouldHideChangedField(item, field))
           .map((field) => ({
             type: "dishes",
@@ -1211,7 +1243,14 @@ function BrandComparePage({ group, onBack }) {
 
       {comparison ? (
         <div className="flex flex-col gap-4">
-          <UnifiedExpandableTable menuTitleRows={menuTitleRows} dishRows={dishRows} />
+          <UnifiedExpandableTable
+            menuTitleRows={menuTitleRows}
+            dishRows={dishRows}
+            selectedStatuses={selectedStatuses}
+            setSelectedStatuses={setSelectedStatuses}
+            selectedRelevancies={selectedRelevancies}
+            setSelectedRelevancies={setSelectedRelevancies}
+          />
         </div>
       ) : null}
     </section>
