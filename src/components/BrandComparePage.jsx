@@ -343,37 +343,179 @@ function SummarySingle({ label, value }) {
   );
 }
 
-function escapeCsvCell(value) {
-  const text = String(value ?? "");
-  const escaped = text.replace(/"/g, "\"\"");
-  return `"${escaped}"`;
+function normalizeExportValue(value) {
+  return value === undefined ? null : value;
 }
 
-function flattenExportText(value) {
-  return String(value ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\s*\n+\s*/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .trim();
+function toMenuTitleSnapshot(item) {
+  if (!item) {
+    return null;
+  }
+
+  return {
+    name: normalizeExportValue(item.title),
+    description: normalizeExportValue(item.description),
+    diets: normalizeExportValue(item.diets),
+    allergens: normalizeExportValue(item.allergens),
+    addons: normalizeExportValue(item.addons),
+  };
 }
 
-function serializeJsonb(value) {
-  if (value === undefined || value === null) {
-    return "";
+function toDishSnapshot(item) {
+  if (!item) {
+    return null;
   }
 
-  if (typeof value === "string") {
-    return flattenExportText(value);
+  return {
+    name: normalizeExportValue(item.name),
+    description: normalizeExportValue(item.description),
+    ingredients: normalizeExportValue(item.ingredients),
+    addons: normalizeExportValue(item.addons),
+    allergens: normalizeExportValue(item.allergens),
+    diets: normalizeExportValue(item.diets),
+  };
+}
+
+function toChangedFieldExport(item, selectedRelevancies) {
+  return (item.changedFields ?? [])
+    .filter((field) => selectedRelevancies.has(getFieldRelevancy(field)))
+    .filter((field) => !shouldHideChangedField(item, field))
+    .map((field) => ({
+      path: field.path ?? "",
+      relevancy: getFieldRelevancy(field),
+      challenge: field.challenge ?? null,
+      before: normalizeExportValue(field.beforeValue),
+      after: normalizeExportValue(field.afterValue),
+    }));
+}
+
+function createMenuTitleLookup(menuTitleRows) {
+  return menuTitleRows.reduce((lookup, item) => {
+    lookup[item.id] = item;
+    return lookup;
+  }, {});
+}
+
+function getMenuTitleNodeId(item) {
+  if (!item) {
+    return null;
   }
 
-  try {
-    return typeof value === "object"
-      ? JSON.stringify(value ?? null)
-      : flattenExportText(value);
-  } catch {
-    return flattenExportText(value);
+  const value = item.id;
+  return value === undefined || value === null || value === "" ? null : String(value);
+}
+
+function getParentMenuTitleId(item) {
+  if (!item) {
+    return null;
   }
+
+  const value = item.parentId;
+  return value === undefined || value === null || value === "" ? null : String(value);
+}
+
+function createMenuTitleVersionLookup(menuTitleRows, versionKey) {
+  return menuTitleRows.reduce((lookup, item) => {
+    const versionItem = item?.[versionKey];
+    const id = getMenuTitleNodeId(versionItem);
+
+    if (id) {
+      lookup[id] = versionItem;
+    }
+
+    return lookup;
+  }, {});
+}
+
+function buildMenuTitleHierarchy(item, versionLookup) {
+  const path = [];
+  const visited = new Set();
+  let current = item;
+
+  while (current) {
+    const id = getMenuTitleNodeId(current);
+    if (!id || visited.has(id)) {
+      break;
+    }
+
+    visited.add(id);
+    path.unshift(toMenuTitleSnapshot(current));
+
+    const parentId = getParentMenuTitleId(current);
+    if (!parentId) {
+      break;
+    }
+
+    current = versionLookup[parentId] ?? null;
+  }
+
+  return path;
+}
+
+function buildParentMenuTitleHierarchy(item, versionLookup) {
+  const hierarchy = buildMenuTitleHierarchy(item, versionLookup);
+  return hierarchy.slice(0, -1);
+}
+
+function buildComparisonExport({
+  visibleMenuTitleRows,
+  visibleDishRows,
+  comparison,
+}) {
+  const menuTitleLookup = createMenuTitleLookup(comparison.changes.menuTitles);
+  const beforeMenuTitleLookup = createMenuTitleVersionLookup(comparison.changes.menuTitles, "before");
+  const afterMenuTitleLookup = createMenuTitleVersionLookup(comparison.changes.menuTitles, "after");
+
+  const menuTitleExamples = visibleMenuTitleRows.map((item) => {
+    const beforeHierarchy = buildParentMenuTitleHierarchy(item.before, beforeMenuTitleLookup);
+    const afterHierarchy = buildParentMenuTitleHierarchy(item.after, afterMenuTitleLookup);
+
+    return {
+      before: {
+        parentMenuTitle: beforeHierarchy,
+        menuTitle: toMenuTitleSnapshot(item.before),
+      },
+      after: {
+        parentMenuTitle: afterHierarchy,
+        menuTitle: toMenuTitleSnapshot(item.after),
+      },
+    };
+  });
+
+  const dishExamples = visibleDishRows.map((item) => {
+    const beforeMenuTitle = menuTitleLookup[item.menuTitleId]?.before ?? null;
+    const afterMenuTitle = menuTitleLookup[item.menuTitleId]?.after ?? null;
+    const beforeHierarchy = buildParentMenuTitleHierarchy(beforeMenuTitle, beforeMenuTitleLookup);
+    const afterHierarchy = buildParentMenuTitleHierarchy(afterMenuTitle, afterMenuTitleLookup);
+
+    return {
+      before: {
+        parentMenuTitle: beforeHierarchy,
+        menuTitle: toMenuTitleSnapshot(beforeMenuTitle),
+        dishes: toDishSnapshot(item.before),
+      },
+      after: {
+        parentMenuTitle: afterHierarchy,
+        menuTitle: toMenuTitleSnapshot(afterMenuTitle),
+        dishes: toDishSnapshot(item.after),
+      },
+    };
+  });
+
+  return [...menuTitleExamples, ...dishExamples];
+}
+
+function downloadExportFile(content, mimeType, filename) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function getMenuTitleParentId(item) {
@@ -1091,68 +1233,35 @@ function BrandComparePage({ group, onBack }) {
     return null;
   }
 
-  function handleExportCsv() {
+  function getExportPayload() {
     if (!comparison) {
-      return;
+      return null;
     }
 
     const visibleMenuTitleRows = menuTitleRows.filter((item) => selectedStatusSet.has(item.status));
     const visibleDishRows = dishRows.filter((item) => selectedStatusSet.has(item.status));
+    return buildComparisonExport({
+      visibleMenuTitleRows,
+      visibleDishRows,
+      comparison,
+    });
+  }
 
-    const exportRows = [
-      ...visibleMenuTitleRows
-        .filter((item) => item.status !== "deleted")
-        .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => selectedRelevancySet.has(getFieldRelevancy(field)))
-          .filter((field) => !shouldHideChangedField(item, field))
-          .map((field) => ({
-            type: "menuTitle",
-            id: item.id,
-            name: item.title ?? "-",
-            field: field.path ?? "-",
-            before: serializeJsonb(field.beforeValue),
-            after: serializeJsonb(field.afterValue),
-          }))),
-      ...visibleDishRows
-        .filter((item) => item.status !== "deleted")
-        .flatMap((item) => (item.changedFields ?? [])
-          .filter((field) => selectedRelevancySet.has(getFieldRelevancy(field)))
-          .filter((field) => !shouldHideChangedField(item, field))
-          .map((field) => ({
-            type: "dishes",
-            id: item.id,
-            name: item.name ?? "-",
-            field: field.path ?? "-",
-            before: serializeJsonb(field.beforeValue),
-            after: serializeJsonb(field.afterValue),
-          }))),
-    ];
+  function handleExportJson() {
+    const exportPayload = getExportPayload();
+    if (!exportPayload) {
+      return;
+    }
 
-    const lines = [
-      ["type", "id", "name", "field", "before", "after"].join(","),
-      ...exportRows.map((row) => [
-        escapeCsvCell(row.type),
-        escapeCsvCell(row.id),
-        escapeCsvCell(row.name),
-        escapeCsvCell(row.field),
-        escapeCsvCell(row.before),
-        escapeCsvCell(row.after),
-      ].join(",")),
-    ];
-
-    const csvContent = lines.join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    const jsonContent = JSON.stringify(exportPayload, null, 2);
     const safeBrand = String(group.brandName ?? "brand").replace(/[^\w-]+/g, "_");
     const safeMenuId = String(group.menuId ?? "menu").replace(/[^\w-]+/g, "_");
 
-    link.href = url;
-    link.download = `${safeBrand}_${safeMenuId}_comparison_export.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadExportFile(
+      jsonContent,
+      "application/json;charset=utf-8;",
+      `${safeBrand}_${safeMenuId}_comparison_export.json`,
+    );
   }
 
   return (
@@ -1171,12 +1280,12 @@ function BrandComparePage({ group, onBack }) {
               </button>
               <button
                 type="button"
-                onClick={handleExportCsv}
+                onClick={handleExportJson}
                 disabled={!comparison}
                 className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
               >
                 <Download className="h-3.5 w-3.5" />
-                Export CSV
+                Export JSON
               </button>
             </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
