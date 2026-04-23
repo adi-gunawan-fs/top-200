@@ -347,35 +347,6 @@ function normalizeExportValue(value) {
   return value === undefined ? null : value;
 }
 
-function toMenuTitleSnapshot(item) {
-  if (!item) {
-    return null;
-  }
-
-  return {
-    name: normalizeExportValue(item.title),
-    description: normalizeExportValue(item.description),
-    diets: normalizeExportValue(item.diets),
-    allergens: normalizeExportValue(item.allergens),
-    addons: normalizeExportValue(item.addons),
-  };
-}
-
-function toDishSnapshot(item) {
-  if (!item) {
-    return null;
-  }
-
-  return {
-    name: normalizeExportValue(item.name),
-    description: normalizeExportValue(item.description),
-    ingredients: normalizeExportValue(item.ingredients),
-    addons: normalizeExportValue(item.addons),
-    allergens: normalizeExportValue(item.allergens),
-    diets: normalizeExportValue(item.diets),
-  };
-}
-
 function toChangedFieldExport(item, selectedRelevancies) {
   return (item.changedFields ?? [])
     .filter((field) => selectedRelevancies.has(getFieldRelevancy(field)))
@@ -389,120 +360,94 @@ function toChangedFieldExport(item, selectedRelevancies) {
     }));
 }
 
-function createMenuTitleLookup(menuTitleRows) {
-  return menuTitleRows.reduce((lookup, item) => {
-    lookup[item.id] = item;
-    return lookup;
-  }, {});
+function isExportPlaceholder(value) {
+  return value === "-" || value === undefined || value === null;
 }
 
-function getMenuTitleNodeId(item) {
-  if (!item) {
-    return null;
-  }
+function getExportItemNameByVersion(item, versionKey) {
+  const versionItem = versionKey === "before" ? item.before : item.after;
+  const raw = item.type === "dish"
+    ? versionItem?.name ?? null
+    : versionItem?.title ?? null;
 
-  const value = item.id;
-  return value === undefined || value === null || value === "" ? null : String(value);
+  return isExportPlaceholder(raw) ? null : normalizeExportValue(raw);
 }
 
-function getParentMenuTitleId(item) {
-  if (!item) {
-    return null;
-  }
-
-  const value = item.parentId;
-  return value === undefined || value === null || value === "" ? null : String(value);
+function getRelevantExportFields(item) {
+  return (item.changedFields ?? [])
+    .filter((field) => getFieldRelevancy(field) === "Relevant")
+    .filter((field) => !shouldHideChangedField(item, field));
 }
 
-function createMenuTitleVersionLookup(menuTitleRows, versionKey) {
-  return menuTitleRows.reduce((lookup, item) => {
-    const versionItem = item?.[versionKey];
-    const id = getMenuTitleNodeId(versionItem);
+function buildChangeField(fields, versionKey) {
+  const out = {};
 
-    if (id) {
-      lookup[id] = versionItem;
+  fields.forEach((field) => {
+    const path = field?.path ?? "";
+    if (!path || path.startsWith("(")) {
+      return;
     }
 
-    return lookup;
-  }, {});
-}
-
-function buildMenuTitleHierarchy(item, versionLookup) {
-  const path = [];
-  const visited = new Set();
-  let current = item;
-
-  while (current) {
-    const id = getMenuTitleNodeId(current);
-    if (!id || visited.has(id)) {
-      break;
+    const rawValue = versionKey === "before" ? field.beforeValue : field.afterValue;
+    if (isExportPlaceholder(rawValue)) {
+      return;
     }
 
-    visited.add(id);
-    path.unshift(toMenuTitleSnapshot(current));
+    out[path] = normalizeExportValue(rawValue);
+  });
 
-    const parentId = getParentMenuTitleId(current);
-    if (!parentId) {
-      break;
-    }
-
-    current = versionLookup[parentId] ?? null;
-  }
-
-  return path;
+  return out;
 }
 
-function buildParentMenuTitleHierarchy(item, versionLookup) {
-  const hierarchy = buildMenuTitleHierarchy(item, versionLookup);
-  return hierarchy.slice(0, -1);
+function toBeforeAfterExport(item) {
+  const type = item.type === "dish" ? "dishes" : "menuTitle";
+  const beforeName = getExportItemNameByVersion(item, "before");
+  const afterName = getExportItemNameByVersion(item, "after");
+  const relevantFields = getRelevantExportFields(item);
+  const beforeChangeField = buildChangeField(relevantFields, "before");
+  const afterChangeField = buildChangeField(relevantFields, "after");
+
+  return {
+    before: {
+      type,
+      name: beforeName,
+      changeField: beforeChangeField,
+    },
+    after: {
+      type,
+      name: afterName,
+      changeField: afterChangeField,
+    },
+  };
+}
+
+function hasRelevantExportChange(item) {
+  const relevantFields = getRelevantExportFields(item);
+  return relevantFields.some((field) => {
+    const path = field?.path ?? "";
+    if (!path || path.startsWith("(")) {
+      return false;
+    }
+
+    const beforeValue = field.beforeValue;
+    const afterValue = field.afterValue;
+
+    return !isExportPlaceholder(beforeValue) || !isExportPlaceholder(afterValue);
+  });
 }
 
 function buildComparisonExport({
   visibleMenuTitleRows,
   visibleDishRows,
-  comparison,
 }) {
-  const menuTitleLookup = createMenuTitleLookup(comparison.changes.menuTitles);
-  const beforeMenuTitleLookup = createMenuTitleVersionLookup(comparison.changes.menuTitles, "before");
-  const afterMenuTitleLookup = createMenuTitleVersionLookup(comparison.changes.menuTitles, "after");
-
-  const menuTitleExamples = visibleMenuTitleRows.map((item) => {
-    const beforeHierarchy = buildParentMenuTitleHierarchy(item.before, beforeMenuTitleLookup);
-    const afterHierarchy = buildParentMenuTitleHierarchy(item.after, afterMenuTitleLookup);
-
-    return {
-      before: {
-        parentMenuTitle: beforeHierarchy,
-        menuTitle: toMenuTitleSnapshot(item.before),
-      },
-      after: {
-        parentMenuTitle: afterHierarchy,
-        menuTitle: toMenuTitleSnapshot(item.after),
-      },
-    };
-  });
-
-  const dishExamples = visibleDishRows.map((item) => {
-    const beforeMenuTitle = menuTitleLookup[item.menuTitleId]?.before ?? null;
-    const afterMenuTitle = menuTitleLookup[item.menuTitleId]?.after ?? null;
-    const beforeHierarchy = buildParentMenuTitleHierarchy(beforeMenuTitle, beforeMenuTitleLookup);
-    const afterHierarchy = buildParentMenuTitleHierarchy(afterMenuTitle, afterMenuTitleLookup);
-
-    return {
-      before: {
-        parentMenuTitle: beforeHierarchy,
-        menuTitle: toMenuTitleSnapshot(beforeMenuTitle),
-        dishes: toDishSnapshot(item.before),
-      },
-      after: {
-        parentMenuTitle: afterHierarchy,
-        menuTitle: toMenuTitleSnapshot(afterMenuTitle),
-        dishes: toDishSnapshot(item.after),
-      },
-    };
-  });
-
-  return [...menuTitleExamples, ...dishExamples];
+  return [
+    ...visibleMenuTitleRows
+      .filter((item) => hasRelevantExportChange(item))
+      .map((item) => toBeforeAfterExport(item)),
+    ...visibleDishRows
+      .filter((item) => hasRelevantExportChange(item))
+      .map((item) => toBeforeAfterExport(item)),
+  ];
 }
 
 function downloadExportFile(content, mimeType, filename) {
@@ -1243,7 +1188,6 @@ function BrandComparePage({ group, onBack }) {
     return buildComparisonExport({
       visibleMenuTitleRows,
       visibleDishRows,
-      comparison,
     });
   }
 
