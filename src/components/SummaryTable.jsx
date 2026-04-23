@@ -99,8 +99,6 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
               <th className="w-32 px-3 py-2">Status</th>
               <th className="w-[280px] px-3 py-2">Menu Title</th>
               <th className="w-[280px] px-3 py-2">Dishes</th>
-              <th className="w-44 px-3 py-2">Dishes Require Curation</th>
-              <th className="w-48 px-3 py-2">Menu Titles Require Curation</th>
               <th className="w-44 px-3 py-2">Latest updatedAt</th>
             </tr>
           </thead>
@@ -176,12 +174,6 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
                   ) : (
                     <span className="text-slate-400">-</span>
                   )}
-                </td>
-                <td className="px-3 py-2 font-semibold text-slate-900">
-                  {comparison ? comparison.summary.dishes.requiresCuration : "-"}
-                </td>
-                <td className="px-3 py-2 font-semibold text-slate-900">
-                  {comparison ? comparison.summary.menuTitles.requiresCuration : "-"}
                 </td>
                 <td className="px-3 py-2">{formatDate(group.latest?.updatedAt)}</td>
               </tr>

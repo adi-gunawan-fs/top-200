@@ -334,15 +334,6 @@ function SummaryTriple({ label, deleted, added, updated }) {
   );
 }
 
-function SummarySingle({ label, value }) {
-  return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
-      <p className="text-slate-500">{label}</p>
-      <p className="mt-1 text-base font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
 function normalizeExportValue(value) {
   return value === undefined ? null : value;
 }
@@ -638,6 +629,44 @@ function getVisibleChangeTypeCounts(changedFields) {
   );
 }
 
+function getTotalVisibleChangeTypeCounts(items, selectedRelevancies) {
+  return items.reduce(
+    (totals, item) => {
+      const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancies)
+        .filter((field) => !shouldHideChangedField(item, field));
+
+      visibleChangedFields.forEach((field) => {
+        totals[getFieldRelevancy(field)] += 1;
+      });
+
+      return totals;
+    },
+    { Relevant: 0, "Not Relevant": 0 },
+  );
+}
+
+function hasVisibleChangedFields(item, selectedRelevancies) {
+  return filterChangedFieldsByRelevancy(item?.changedFields, selectedRelevancies)
+    .filter((field) => !shouldHideChangedField(item, field))
+    .length > 0;
+}
+
+function countVisibleStatuses(items) {
+  return items.reduce(
+    (summary, item) => {
+      if (item.status === "new") {
+        summary.new += 1;
+      } else if (item.status === "updated") {
+        summary.updated += 1;
+      } else if (item.status === "deleted") {
+        summary.deleted += 1;
+      }
+      return summary;
+    },
+    { deleted: 0, new: 0, updated: 0 },
+  );
+}
+
 function ChangedFieldsCell({ item, selectedRelevancies }) {
   const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancies)
     .filter((field) => !shouldHideChangedField(item, field));
@@ -727,6 +756,35 @@ function filterHierarchyByStatus(roots, orphanDishes, selectedStatuses) {
   };
 }
 
+function filterHierarchyNodeByRelevancy(node, selectedRelevancies) {
+  const filteredChildren = node.children
+    .map((child) => filterHierarchyNodeByRelevancy(child, selectedRelevancies))
+    .filter(Boolean);
+  const filteredDishes = node.dishes.filter((dish) => hasVisibleChangedFields(dish, selectedRelevancies));
+  const includeSelf = hasVisibleChangedFields(node.item, selectedRelevancies);
+  const keepAsContext = !includeSelf && (filteredChildren.length > 0 || filteredDishes.length > 0);
+
+  if (!includeSelf && !keepAsContext) {
+    return null;
+  }
+
+  return {
+    ...node,
+    children: filteredChildren,
+    dishes: filteredDishes,
+    contextOnly: keepAsContext,
+  };
+}
+
+function filterHierarchyByRelevancy(roots, orphanDishes, selectedRelevancies) {
+  return {
+    roots: roots
+      .map((node) => filterHierarchyNodeByRelevancy(node, selectedRelevancies))
+      .filter(Boolean),
+    orphanDishes: orphanDishes.filter((dish) => hasVisibleChangedFields(dish, selectedRelevancies)),
+  };
+}
+
 function challengeCell(item) {
   if (!item?.requiresCuration) {
     return <span className="text-slate-400">-</span>;
@@ -753,16 +811,20 @@ function UnifiedExpandableTable({
   selectedRelevancies,
   setSelectedRelevancies,
 }) {
+  const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const { roots, orphanDishes } = useMemo(
     () => buildHierarchy(menuTitleRows, dishRows),
     [menuTitleRows, dishRows],
   );
   const [expandedTitles, setExpandedTitles] = useState({});
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
-  const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
-  const { roots: filteredRoots, orphanDishes: filteredOrphanDishes } = useMemo(
+  const { roots: statusFilteredRoots, orphanDishes: statusFilteredOrphanDishes } = useMemo(
     () => filterHierarchyByStatus(roots, orphanDishes, selectedStatusSet),
     [roots, orphanDishes, selectedStatusSet],
+  );
+  const { roots: filteredRoots, orphanDishes: filteredOrphanDishes } = useMemo(
+    () => filterHierarchyByRelevancy(statusFilteredRoots, statusFilteredOrphanDishes, selectedRelevancySet),
+    [selectedRelevancySet, statusFilteredOrphanDishes, statusFilteredRoots],
   );
 
   const toggleStatus = (status) => {
@@ -1131,6 +1193,34 @@ function BrandComparePage({ group, onBack }) {
 
   const dishRows = comparison ? comparison.changes.dishes : [];
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
+  const visibleChangeTypeCounts = useMemo(() => {
+    if (!comparison) {
+      return { Relevant: 0, "Not Relevant": 0 };
+    }
+
+    const visibleItems = [...menuTitleRows, ...dishRows].filter((item) => selectedStatusSet.has(item.status));
+    return getTotalVisibleChangeTypeCounts(visibleItems, selectedRelevancySet);
+  }, [comparison, dishRows, menuTitleRows, selectedRelevancySet, selectedStatusSet]);
+  const visibleMenuTitleSummary = useMemo(() => {
+    if (!comparison) {
+      return { deleted: 0, new: 0, updated: 0 };
+    }
+
+    const visibleMenuTitles = menuTitleRows
+      .filter((item) => selectedStatusSet.has(item.status))
+      .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet));
+    return countVisibleStatuses(visibleMenuTitles);
+  }, [comparison, menuTitleRows, selectedRelevancySet, selectedStatusSet]);
+  const visibleDishSummary = useMemo(() => {
+    if (!comparison) {
+      return { deleted: 0, new: 0, updated: 0 };
+    }
+
+    const visibleDishes = dishRows
+      .filter((item) => selectedStatusSet.has(item.status))
+      .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet));
+    return countVisibleStatuses(visibleDishes);
+  }, [comparison, dishRows, selectedRelevancySet, selectedStatusSet]);
 
   function getBeforeOptionDisableReason(record) {
     const key = String(record.id);
@@ -1260,7 +1350,7 @@ function BrandComparePage({ group, onBack }) {
         </p>
 
         {comparison ? (
-          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-5">
+          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-4">
             <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
               <p className="text-slate-500">Menu decision</p>
               <div className="mt-1 flex items-center gap-2">
@@ -1270,18 +1360,22 @@ function BrandComparePage({ group, onBack }) {
             </div>
             <SummaryTriple
               label="Menu Title"
-              deleted={comparison.summary.menuTitles.deleted}
-              added={comparison.summary.menuTitles.new}
-              updated={comparison.summary.menuTitles.updated}
+              deleted={visibleMenuTitleSummary.deleted}
+              added={visibleMenuTitleSummary.new}
+              updated={visibleMenuTitleSummary.updated}
             />
             <SummaryTriple
               label="Dishes"
-              deleted={comparison.summary.dishes.deleted}
-              added={comparison.summary.dishes.new}
-              updated={comparison.summary.dishes.updated}
+              deleted={visibleDishSummary.deleted}
+              added={visibleDishSummary.new}
+              updated={visibleDishSummary.updated}
             />
-            <SummarySingle label="Dishes Require Curation" value={comparison.summary.dishes.requiresCuration} />
-            <SummarySingle label="Menu Titles Require Curation" value={comparison.summary.menuTitles.requiresCuration} />
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
+              <p className="text-slate-500">Visible Field Relevancy</p>
+              <div className="mt-1">
+                <ChangeTypeCounts counts={visibleChangeTypeCounts} />
+              </div>
+            </div>
           </div>
         ) : (
           <p className="mt-3 text-xs text-rose-600">{selectionMessage}</p>
