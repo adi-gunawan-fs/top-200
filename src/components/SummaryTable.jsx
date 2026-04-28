@@ -1,35 +1,8 @@
 import { useMemo } from "react";
 import { ExternalLink } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
-
-function formatDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.valueOf())) {
-    return value;
-  }
-
-  return parsed.toLocaleString();
-}
-
-function SummaryTripleCell({ deleted, added, updated }) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      <span className="inline-flex items-center rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-        Deleted: {deleted}
-      </span>
-      <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-        New: {added}
-      </span>
-      <span className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
-        Updated: {updated}
-      </span>
-    </div>
-  );
-}
+import { formatDate } from "../utils/formatDate";
+import { SummaryTriple } from "./ui/SummaryTriple";
 
 function getDefaultComparison(group) {
   const records = group.records ?? [];
@@ -155,7 +128,7 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
                 </td>
                 <td className="px-3 py-2">
                   {comparison ? (
-                    <SummaryTripleCell
+                    <SummaryTriple
                       deleted={comparison.summary.menuTitles.deleted}
                       added={comparison.summary.menuTitles.new}
                       updated={comparison.summary.menuTitles.updated}
@@ -166,7 +139,7 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
                 </td>
                 <td className="px-3 py-2">
                   {comparison ? (
-                    <SummaryTripleCell
+                    <SummaryTriple
                       deleted={comparison.summary.dishes.deleted}
                       added={comparison.summary.dishes.new}
                       updated={comparison.summary.dishes.updated}

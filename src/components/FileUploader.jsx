@@ -48,13 +48,9 @@ function FileUploader({ fileName, loading, onFileSelect, inline = false }) {
   }, []);
 
   const containerClass = inline ? "" : "rounded-lg border border-slate-200 bg-white p-4 shadow-sm";
-  const dropzoneClass = inline
-    ? `rounded-md border border-dashed px-3 py-2 text-center transition ${
-        dragActive ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-slate-50"
-      }`
-    : `rounded-md border border-dashed px-4 py-3 text-center transition ${
-        dragActive ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-slate-50"
-      }`;
+  const dropzoneClass = `rounded-md border border-dashed px-3 py-2 text-center transition ${
+    dragActive ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-slate-50"
+  }`;
 
   return (
     <section className={containerClass}>
