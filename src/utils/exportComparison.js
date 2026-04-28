@@ -43,7 +43,7 @@ function buildChangeField(fields, versionKey) {
   return out;
 }
 
-function toBeforeAfterExport(item) {
+export function toBeforeAfterExport(item) {
   const type = item.type === "dish" ? "dishes" : "menuTitle";
   const beforeName = getExportItemNameByVersion(item, "before");
   const afterName = getExportItemNameByVersion(item, "after");
@@ -57,7 +57,7 @@ function toBeforeAfterExport(item) {
   };
 }
 
-function hasRelevantExportChange(item) {
+export function hasRelevantExportChange(item) {
   const relevantFields = getRelevantExportFields(item);
   return relevantFields.some((field) => {
     const path = field?.path ?? "";

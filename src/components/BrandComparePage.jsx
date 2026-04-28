@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, Play, Loader2 } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
-import { formatDate, parseDateValue } from "../utils/formatDate";
-import { buildComparisonExport, downloadExportFile } from "../utils/exportComparison";
+import { parseDateValue } from "../utils/formatDate";
+import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
 import {
   hasVisibleChangedFields,
   getTotalVisibleChangeTypeCounts,
@@ -18,6 +18,16 @@ import {
   DEFAULT_SELECTED_STATUSES,
   DEFAULT_SELECTED_RELEVANCIES,
 } from "./UnifiedExpandableTable";
+import { runBraintrustAnalysis } from "../lib/braintrust";
+import {
+  fetchAnalysisResults,
+  upsertAnalysisResult,
+  makeAnalysisKey,
+} from "../lib/analysisResults";
+
+function makeShortKey(itemId, itemType) {
+  return `${itemId}__${itemType}`;
+}
 
 function BrandComparePage({ group, onBack }) {
   const records = group.records ?? [];
@@ -25,6 +35,12 @@ function BrandComparePage({ group, onBack }) {
   const [afterId, setAfterId] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState(DEFAULT_SELECTED_STATUSES);
   const [selectedRelevancies, setSelectedRelevancies] = useState(DEFAULT_SELECTED_RELEVANCIES);
+
+  // analysisResultsMap: shortKey -> result object
+  const [analysisResultsMap, setAnalysisResultsMap] = useState({});
+  // runningKeys: Set of shortKeys currently being processed
+  const [runningKeys, setRunningKeys] = useState(new Set());
+  const [isRunningAll, setIsRunningAll] = useState(false);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -90,6 +106,73 @@ function BrandComparePage({ group, onBack }) {
   const dishRows = comparison ? comparison.changes.dishes : [];
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
 
+  // Items eligible for analysis: have relevant export changes
+  const eligibleItems = useMemo(() => {
+    if (!comparison) return [];
+    const allRows = [...menuTitleRows, ...dishRows];
+    return allRows.filter((item) => selectedStatusSet.has(item.status) && hasRelevantExportChange(item));
+  }, [comparison, dishRows, menuTitleRows, selectedStatusSet]);
+
+  const eligibleItemKeys = useMemo(() => {
+    return new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type)));
+  }, [eligibleItems]);
+
+  // Load saved analysis results whenever the before/after selection changes
+  useEffect(() => {
+    if (!beforeId || !afterId || beforeId === afterId) {
+      setAnalysisResultsMap({});
+      return;
+    }
+
+    fetchAnalysisResults(beforeId, afterId)
+      .then((rows) => {
+        const map = {};
+        rows.forEach((row) => {
+          const shortKey = makeShortKey(row.item_id, row.item_type);
+          map[shortKey] = row.result;
+        });
+        setAnalysisResultsMap(map);
+      })
+      .catch((err) => {
+        console.error("Failed to load analysis results:", err);
+      });
+  }, [beforeId, afterId]);
+
+  async function runAnalysisForItem(item) {
+    const shortKey = makeShortKey(item.id, item.type);
+    setRunningKeys((prev) => new Set([...prev, shortKey]));
+    try {
+      const exportItem = toBeforeAfterExport(item);
+      const result = await runBraintrustAnalysis(exportItem);
+      await upsertAnalysisResult({
+        beforeRecordId: beforeId,
+        afterRecordId: afterId,
+        itemId: String(item.id),
+        itemType: String(item.type),
+        result,
+      });
+      setAnalysisResultsMap((prev) => ({ ...prev, [shortKey]: result }));
+    } catch (err) {
+      console.error("Analysis failed for item", item.id, err);
+    } finally {
+      setRunningKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(shortKey);
+        return next;
+      });
+    }
+  }
+
+  async function handleRunAll() {
+    if (!comparison || eligibleItems.length === 0) return;
+    setIsRunningAll(true);
+    try {
+      await Promise.all(eligibleItems.map((item) => runAnalysisForItem(item)));
+    } finally {
+      setIsRunningAll(false);
+    }
+  }
+
   const visibleChangeTypeCounts = useMemo(() => {
     if (!comparison) return { Relevant: 0, "Not Relevant": 0 };
     const visibleItems = [...menuTitleRows, ...dishRows].filter((item) => selectedStatusSet.has(item.status));
@@ -153,6 +236,8 @@ function BrandComparePage({ group, onBack }) {
     );
   }
 
+  const pendingCount = eligibleItems.length - Object.keys(analysisResultsMap).filter((k) => eligibleItemKeys.has(k)).length;
+
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -175,6 +260,21 @@ function BrandComparePage({ group, onBack }) {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleRunAll}
+                disabled={!comparison || isRunningAll || eligibleItems.length === 0}
+                className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                {isRunningAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                {isRunningAll
+                  ? "Running Analysis…"
+                  : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""})`}
               </button>
             </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
@@ -255,6 +355,10 @@ function BrandComparePage({ group, onBack }) {
             setSelectedStatuses={setSelectedStatuses}
             selectedRelevancies={selectedRelevancies}
             setSelectedRelevancies={setSelectedRelevancies}
+            analysisResultsMap={analysisResultsMap}
+            runningKeys={runningKeys}
+            onRunOne={runAnalysisForItem}
+            eligibleItemKeys={eligibleItemKeys}
           />
         </div>
       ) : null}
