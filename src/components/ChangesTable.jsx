@@ -1,36 +1,36 @@
+import { useState } from "react";
 import { StatusPill, rowStyles } from "./ui/StatusPill";
 import { challengeCell } from "./ui/ChallengeBadge";
-import { ChangeTypeBadge, ChangeTypeCounts } from "./ui/ChangeTypeBadge";
+import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { RulesTooltip } from "./ui/RulesTooltip";
+import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 
-function formatValue(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
+function ChangedFieldsCell({ item }) {
+  const [open, setOpen] = useState(false);
+  const fields = item.changedFields ?? [];
 
-function isStructuredValue(value) {
-  return value !== null && typeof value === "object";
-}
-
-function renderDiffValue(value, toneClass) {
-  if (value === null || value === undefined) {
-    return <p className={`text-[11px] break-words ${toneClass}`}>&nbsp;</p>;
+  if (!fields.length) {
+    return <span className="text-slate-400">-</span>;
   }
 
-  if (isStructuredValue(value)) {
-    return (
-      <pre className={`overflow-x-auto whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
-        {JSON.stringify(value, null, 2)}
-      </pre>
-    );
-  }
-
-  return <p className={`text-[11px] break-words ${toneClass}`}>{formatValue(value)}</p>;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-blue-700 hover:text-blue-900 hover:underline focus:outline-none"
+      >
+        {fields.length} field{fields.length > 1 ? "s" : ""} changed
+      </button>
+      {open ? (
+        <ChangedFieldsModal
+          item={item}
+          fields={fields}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
 }
 
 export function ChangesTable({ title, rows, labelKey, itemType }) {
@@ -71,35 +71,7 @@ export function ChangesTable({ title, rows, labelKey, itemType }) {
                   <ChangeTypeCounts counts={item.changeTypeCounts} />
                 </td>
                 <td className="px-3 py-2">
-                  {item.changedFields?.length ? (
-                    <details>
-                      <summary className="cursor-pointer text-blue-700 hover:text-blue-900">
-                        {item.changedFields.length} field{item.changedFields.length > 1 ? "s" : ""} changed
-                      </summary>
-                      <div className="mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-slate-50 p-2">
-                        {item.changedFields.map((field) => (
-                          <div key={`${item.id}-${field.path}`} className="mb-2 last:mb-0">
-                            <p className="flex items-center gap-1.5 font-semibold text-slate-700">
-                              <span>{field.path}</span>
-                              <ChangeTypeBadge type={field.changeType} />
-                            </p>
-                            <div className="mt-1 grid grid-cols-1 gap-2 md:grid-cols-2">
-                              <div className="rounded border border-rose-200 bg-rose-50 p-2">
-                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700">Before</p>
-                                {renderDiffValue(field.beforeValue, "text-rose-700")}
-                              </div>
-                              <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
-                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">After</p>
-                                {renderDiffValue(field.afterValue, "text-emerald-700")}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ) : (
-                    <span className="text-slate-400">-</span>
-                  )}
+                  <ChangedFieldsCell item={item} />
                 </td>
               </tr>
             ))}

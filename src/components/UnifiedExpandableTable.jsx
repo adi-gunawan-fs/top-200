@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { StatusPill, rowStyles } from "./ui/StatusPill";
 import { challengeCell } from "./ui/ChallengeBadge";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
+import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { buildHierarchy, collectTitleIds } from "../utils/hierarchyUtils";
 import {
   filterHierarchyByStatus,
@@ -31,41 +32,8 @@ export const DEFAULT_SELECTED_RELEVANCIES = RELEVANCY_FILTER_OPTIONS
   .filter((option) => option.defaultChecked)
   .map((option) => option.value);
 
-function formatValue(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function getCharacterCount(value) {
-  return formatValue(value).length;
-}
-
-function isStructuredValue(value) {
-  return value !== null && typeof value === "object";
-}
-
-function renderDiffValue(value, toneClass) {
-  if (value === null || value === undefined) {
-    return <p className={`text-[11px] break-words ${toneClass}`}>&nbsp;</p>;
-  }
-
-  if (isStructuredValue(value)) {
-    return (
-      <pre className={`overflow-x-auto whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
-        {JSON.stringify(value, null, 2)}
-      </pre>
-    );
-  }
-
-  return <p className={`text-[11px] break-words ${toneClass}`}>{formatValue(value)}</p>;
-}
-
 function ChangedFieldsCell({ item, selectedRelevancies }) {
+  const [open, setOpen] = useState(false);
   const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancies)
     .filter((field) => !shouldHideChangedField(item, field));
 
@@ -74,50 +42,22 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
   }
 
   return (
-    <details>
-      <summary className="cursor-pointer text-blue-700 hover:text-blue-900">
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-blue-700 hover:text-blue-900 hover:underline focus:outline-none"
+      >
         {visibleChangedFields.length} field{visibleChangedFields.length > 1 ? "s" : ""} changed
-      </summary>
-      <div className="mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-white">
-        <table className="min-w-full table-fixed border-collapse text-xs">
-          <colgroup>
-            <col className="w-64" />
-            <col className="w-[calc(50%-12rem)]" />
-            <col className="w-[calc(50%-12rem)]" />
-            <col className="w-32" />
-          </colgroup>
-          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="border-b border-slate-200 px-3 py-2 text-left">Field</th>
-              <th className="border-b border-slate-200 px-3 py-2 text-left">Before</th>
-              <th className="border-b border-slate-200 px-3 py-2 text-left">After</th>
-              <th className="border-b border-slate-200 px-3 py-2 text-left">Char Count</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleChangedFields.map((field) => (
-              <tr key={`${item.id}-${field.path}`} className="align-top">
-                <td className="border-b border-slate-200 px-3 py-2 font-semibold text-slate-700">
-                  <span className="break-all">{field.path}</span>
-                </td>
-                <td className="border-b border-slate-200 px-3 py-2 text-slate-700">
-                  {renderDiffValue(field.beforeValue, "text-slate-700")}
-                </td>
-                <td className="border-b border-slate-200 px-3 py-2 text-slate-700">
-                  {renderDiffValue(field.afterValue, "text-slate-700")}
-                </td>
-                <td className="border-b border-slate-200 px-3 py-2 text-[11px] text-slate-600">
-                  <div className="space-y-1">
-                    <p>Before: {getCharacterCount(field.beforeValue)}</p>
-                    <p>After: {getCharacterCount(field.afterValue)}</p>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
+      </button>
+      {open ? (
+        <ChangedFieldsModal
+          item={item}
+          fields={visibleChangedFields}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
