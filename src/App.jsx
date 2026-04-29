@@ -4,6 +4,8 @@ import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import UploadSelector from "./components/UploadSelector";
+import { Button } from "./components/ui/Button";
+import { EmptyState } from "./components/ui/EmptyState";
 import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
@@ -94,12 +96,12 @@ function App() {
         <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-900">
-              <span className="text-[11px] font-bold text-white">T2</span>
+              <span className="text-[11px] font-semibold text-white">T2</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-900">Top 200 Brands</span>
+              <span className="text-base font-semibold text-slate-900">Top 200 Brands</span>
               <span className="hidden h-4 w-px bg-slate-200 sm:block" />
-              <span className="hidden text-xs text-slate-400 sm:block">Menu Review</span>
+              <span className="hidden text-xs text-slate-500 sm:block">Menu Review</span>
             </div>
           </div>
 
@@ -118,26 +120,17 @@ function App() {
               <span className="hidden max-w-[160px] truncate text-xs text-slate-500 lg:block">
                 {session.user.email}
               </span>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                aria-label="Sign out"
-              >
+              <Button onClick={handleSignOut} aria-label="Sign out">
                 <LogOut className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sign out</span>
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       </header>
 
       <div className="mx-auto flex max-w-screen-2xl flex-col gap-4 p-4">
-        {error ? (
-          <section className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 shadow-sm">
-            {error}
-          </section>
-        ) : null}
+        {error ? <EmptyState message={error} tone="danger" /> : null}
 
         {selectedGroup ? (
           <BrandComparePage group={selectedGroup} onBack={() => setSelectedGroup(null)} />

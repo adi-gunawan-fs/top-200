@@ -1,5 +1,6 @@
 import { CircleHelp } from "lucide-react";
 import { CHANGE_TYPE_RULES, CHALLENGE_RULES } from "../../utils/compareMessages";
+import { Badge } from "./Badge";
 import { ChangeTypeBadge } from "./ChangeTypeBadge";
 import { ChallengeBadge } from "./ChallengeBadge";
 
@@ -46,6 +47,13 @@ function RulesTable({ itemType }) {
 }
 
 export function ColorCodeTable() {
+  const rows = [
+    { label: "New", tone: "success", swatch: "Light Green" },
+    { label: "Updated", tone: "warning", swatch: "Light Yellow" },
+    { label: "Deleted", tone: "danger", swatch: "Light Red" },
+    { label: "Unchanged", tone: "neutral", swatch: "White" },
+  ];
+
   return (
     <div className="rounded border border-slate-200 bg-white p-2">
       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">Color Code</p>
@@ -58,38 +66,12 @@ export function ColorCodeTable() {
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-slate-100">
-              <td className="px-1 py-1"><span className="font-medium text-slate-700">New</span></td>
-              <td className="px-1 py-1">
-                <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                  Light Green
-                </span>
-              </td>
-            </tr>
-            <tr className="border-b border-slate-100">
-              <td className="px-1 py-1"><span className="font-medium text-slate-700">Updated</span></td>
-              <td className="px-1 py-1">
-                <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                  Light Yellow
-                </span>
-              </td>
-            </tr>
-            <tr className="border-b border-slate-100">
-              <td className="px-1 py-1"><span className="font-medium text-slate-700">Deleted</span></td>
-              <td className="px-1 py-1">
-                <span className="inline-flex items-center rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
-                  Light Red
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <td className="px-1 py-1"><span className="font-medium text-slate-700">Unchanged</span></td>
-              <td className="px-1 py-1">
-                <span className="inline-flex items-center rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                  White
-                </span>
-              </td>
-            </tr>
+            {rows.map((row, i) => (
+              <tr key={row.label} className={i < rows.length - 1 ? "border-b border-slate-100" : ""}>
+                <td className="px-1 py-1"><span className="font-medium text-slate-700">{row.label}</span></td>
+                <td className="px-1 py-1"><Badge tone={row.tone} uppercase={false}>{row.swatch}</Badge></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

@@ -8,6 +8,9 @@ import {
   getTotalVisibleChangeTypeCounts,
   countVisibleStatuses,
 } from "../utils/filterUtils";
+import { Button } from "./ui/Button";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { KpiTile } from "./ui/KpiTile";
 import { StatusPill } from "./ui/StatusPill";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { RecordSelect } from "./ui/RecordSelect";
@@ -22,7 +25,6 @@ import { runBraintrustAnalysisAllModels, BRAINTRUST_MODELS } from "../lib/braint
 import {
   fetchAnalysisResults,
   upsertAnalysisResult,
-  makeAnalysisKey,
 } from "../lib/analysisResults";
 
 function makeShortKey(itemId, itemType) {
@@ -36,9 +38,7 @@ function BrandComparePage({ group, onBack }) {
   const [selectedStatuses, setSelectedStatuses] = useState(DEFAULT_SELECTED_STATUSES);
   const [selectedRelevancies, setSelectedRelevancies] = useState(DEFAULT_SELECTED_RELEVANCIES);
 
-  // analysisResultsMap: shortKey -> result object
   const [analysisResultsMap, setAnalysisResultsMap] = useState({});
-  // runningKeys: Set of shortKeys currently being processed
   const [runningKeys, setRunningKeys] = useState(new Set());
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
@@ -107,7 +107,6 @@ function BrandComparePage({ group, onBack }) {
   const dishRows = comparison ? comparison.changes.dishes : [];
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
 
-  // Items eligible for analysis: have relevant export changes
   const eligibleItems = useMemo(() => {
     if (!comparison) return [];
     const allRows = [...menuTitleRows, ...dishRows];
@@ -118,8 +117,6 @@ function BrandComparePage({ group, onBack }) {
     return new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type)));
   }, [eligibleItems]);
 
-  // Load saved analysis results whenever the before/after selection changes
-  // analysisResultsMap shape: { shortKey: { modelName: result } }
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       setAnalysisResultsMap({});
@@ -260,28 +257,24 @@ function BrandComparePage({ group, onBack }) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={onBack}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-              >
+              <Button onClick={onBack}>
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="tonal"
+                tone="info"
                 onClick={handleExportJson}
                 disabled={!comparison}
-                className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
               >
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="tonal"
+                tone="ai"
                 onClick={() => setRunAllConfirmOpen(true)}
                 disabled={!comparison || isRunningAll || eligibleItems.length === 0}
-                className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
               >
                 {isRunningAll ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -291,33 +284,16 @@ function BrandComparePage({ group, onBack }) {
                 {isRunningAll
                   ? "Running Analysis…"
                   : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""})`}
-              </button>
-              {runAllConfirmOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-                  <div className="w-80 rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-                    <p className="text-sm font-semibold text-slate-800">Run analysis on all items?</p>
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      This will send <span className="font-medium text-slate-700">{eligibleItems.length} item{eligibleItems.length !== 1 ? "s" : ""}</span> to the AI models for analysis. Existing results will be overwritten.
-                    </p>
-                    <div className="mt-4 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRunAllConfirmOpen(false)}
-                        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setRunAllConfirmOpen(false); handleRunAll(); }}
-                        className="rounded-md border border-violet-400 bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
-                      >
-                        Run Analysis
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              </Button>
+              <ConfirmDialog
+                open={runAllConfirmOpen}
+                title="Run analysis on all items?"
+                description={`This will send ${eligibleItems.length} item${eligibleItems.length !== 1 ? "s" : ""} to the AI models for analysis. Existing results will be overwritten.`}
+                confirmLabel="Run Analysis"
+                confirmTone="ai"
+                onCancel={() => setRunAllConfirmOpen(false)}
+                onConfirm={() => { setRunAllConfirmOpen(false); handleRunAll(); }}
+              />
             </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
             <p className="mt-1 text-xs text-slate-600">
@@ -349,13 +325,12 @@ function BrandComparePage({ group, onBack }) {
 
         {comparison ? (
           <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-4">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
-              <p className="text-slate-500">Menu decision</p>
-              <div className="mt-1 flex items-center gap-2">
+            <KpiTile label="Menu decision">
+              <div className="flex items-center gap-2">
                 <StatusPill status={comparison.menu.status} />
                 <span className="text-slate-700">{comparison.menu.reason}</span>
               </div>
-            </div>
+            </KpiTile>
             <SummaryTriple
               label="Menu Title"
               deleted={visibleMenuTitleSummary.deleted}
@@ -368,12 +343,9 @@ function BrandComparePage({ group, onBack }) {
               added={visibleDishSummary.new}
               updated={visibleDishSummary.updated}
             />
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
-              <p className="text-slate-500">Visible Field Relevancy</p>
-              <div className="mt-1">
-                <ChangeTypeCounts counts={visibleChangeTypeCounts} />
-              </div>
-            </div>
+            <KpiTile label="Visible Field Relevancy">
+              <ChangeTypeCounts counts={visibleChangeTypeCounts} />
+            </KpiTile>
           </div>
         ) : (
           <p className="mt-3 text-xs text-rose-600">{selectionMessage}</p>

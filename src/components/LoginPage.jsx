@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { signIn } from "../lib/auth";
+import { Button } from "./ui/Button";
 
 function LoginPage() {
   const [email, setEmail] = useState("");
@@ -68,13 +69,16 @@ function LoginPage() {
               </p>
             ) : null}
 
-            <button
+            <Button
               type="submit"
+              variant="tonal"
+              tone="info"
+              size="lg"
               disabled={loading}
-              className="mt-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              className="mt-1 w-full"
             >
               {loading ? "Signing in…" : "Sign in"}
-            </button>
+            </Button>
           </form>
         </div>
       </div>

@@ -1,7 +1,9 @@
 # UI Design System — Top 200 Brands
 
 A reference for anyone building UI in this codebase: developers, designers, or AI tools.
-The goal is visual consistency across all components without changing the existing design.
+The goal is visual consistency through a small set of enforced primitives.
+
+**Light mode only. No dark mode classes anywhere.**
 
 ---
 
@@ -13,19 +15,44 @@ The goal is visual consistency across all components without changing the existi
 
 ---
 
+## Primitives — always use these, never inline
+
+All primitives live in `src/components/ui/`. Before writing markup, check this list. If a primitive doesn't fit, propose adding/extending one — don't inline a one-off.
+
+| Primitive | File | Use for |
+|---|---|---|
+| `<Button variant tone size>` | `Button.jsx` | every button. variants: `outline` (default), `tonal`, `solid`, `ghost`. tones: `neutral`, `info`, `success`, `warning`, `danger`, `ai`. sizes: `xs`, `sm` (default), `md`, `lg` |
+| `<IconButton tone size>` | `Button.jsx` | square icon-only buttons (close, action toggles) |
+| `<Badge tone size uppercase>` | `Badge.jsx` | every pill / chip. Same tone palette as `Button`. `uppercase={false}` for label-style pills like "Deleted: 3" |
+| `<Modal title subtitle onClose footer size>` | `Modal.jsx` | every dialog. Always portaled, focus-trapped, ESC-closable, scroll-locked |
+| `<ConfirmDialog>` | `ConfirmDialog.jsx` | yes/no confirmation flows |
+| `<Card>`, `<Card.Header>`, `<Card.Toolbar>`, `<Card.Body>` | `Card.jsx` | every standalone section / table shell |
+| `<KpiTile label>` | `KpiTile.jsx` | the small slate-50 stat tiles in page headers |
+| `<EmptyState message tone>` | `EmptyState.jsx` | empty list, loading state, top-level error |
+| `<StatusPill status>` | `StatusPill.jsx` | new / updated / deleted / unchanged |
+| `<CurationPill required>` | `CurationPill.jsx` | curation requirement |
+| `<ChallengeBadge challenge>` | `ChallengeBadge.jsx` | Hard / Easy |
+| `<ChangeTypeBadge type>` / `<ChangeTypeCounts>` | `ChangeTypeBadge.jsx` | Relevant / Not Relevant |
+| `<SummaryTriple label deleted added updated bare>` | `SummaryTriple.jsx` | deleted/new/updated count block. `bare` skips the KpiTile shell (use inside table cells) |
+
+**Hard rule:** never copy the inline classes from a primitive's source — import the primitive.
+
+---
+
 ## Color System
 
-Five semantic groups. Do not introduce new colors outside these.
+Six semantic tones — used by `Button`, `Badge`, and everywhere else. Never introduce new hues.
 
-| Role | Background | Text | Border |
-|---|---|---|---|
-| New / Success | `bg-emerald-50` | `text-emerald-700` | `border-emerald-200` |
-| Updated / Warning | `bg-amber-50` | `text-amber-700` | `border-amber-200` |
-| Deleted / Error | `bg-rose-50` | `text-rose-700` | `border-rose-200` |
-| Info / Selected | `bg-blue-50` | `text-blue-700` | `border-blue-200` |
-| Neutral / Unchanged | `bg-slate-50` | `text-slate-600` | `border-slate-200` |
+| Tone | Use | Color family |
+|---|---|---|
+| `neutral` | unchanged, default | slate |
+| `info` | selected, primary action, "updated" counts | blue |
+| `success` | new / created / resolved | emerald |
+| `warning` | needs review / updated rows | amber |
+| `danger` | deleted / errors / "Relevant" highlight | rose |
+| `ai` | AI / analysis affordances | violet |
 
-Row background tints (for table rows):
+Row background tints (for table rows, via `rowStyles(status)` from `StatusPill.jsx`):
 
 | Status | Class |
 |---|---|
@@ -43,15 +70,15 @@ Row background tints (for table rows):
 | Page title | `text-base font-semibold text-slate-900` |
 | Section heading | `text-xs font-semibold text-slate-700` |
 | Body / table cells | `text-xs text-slate-700` |
-| Muted / secondary | `text-xs text-slate-500` or `text-slate-600` |
+| Muted / secondary | `text-xs text-slate-500` |
 | Table header | `text-[11px] uppercase tracking-wide text-slate-600` |
-| Badge / pill label | `text-[10px] font-semibold uppercase tracking-wide` |
+| Badge label | handled by `<Badge>` (`text-[10px] font-semibold uppercase tracking-wide`) |
 | Small detail | `text-[11px] text-slate-600` |
 
 Rules:
-- Use `font-semibold` or `font-medium` — never `font-bold`
+- Use `font-semibold` or `font-medium` — **never `font-bold`**
 - Use `text-xs` (12px) or smaller for all data — never `text-sm` or larger in tables
-- Do not write multi-line comments or docstrings in components
+- No multi-line comments or docstrings in components
 
 ---
 
@@ -59,84 +86,51 @@ Rules:
 
 | Context | Class |
 |---|---|
-| Card / section padding | `p-4` |
+| Card body padding | `p-4` (use `<Card.Body>`) |
+| Card header / toolbar padding | `px-3 py-2` (handled by `<Card.Header>` / `<Card.Toolbar>`) |
 | Table cell padding | `px-3 py-2` |
-| Compact header padding | `px-3 py-2` |
+| Button size `sm` | `px-2 py-1` |
+| Button size `md` | `px-3 py-1.5` |
 | Gap between flex children | `gap-2`, `gap-3`, or `gap-4` |
-| Gap between badge/pill items | `gap-1` or `gap-1.5` |
+| Gap between badge/pill items | `gap-1.5` |
+| Stack of cards | `gap-4` |
 
 ---
 
-## Cards & Sections
+## Tables
 
-All standalone sections use this shell:
+Every table lives inside a `<Card>`. Standard markup:
 
-```
-rounded-lg border border-slate-200 bg-white shadow-sm
-```
-
-Section headers (inside a card, above content):
-
-```
-border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700
-```
-
----
-
-## Badges & Pills
-
-Standard pill shape — apply the appropriate color group from the color system:
-
-```
-inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide
-```
-
-Example — a "New" status pill:
 ```jsx
-<span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-  New
-</span>
+<Card>
+  <Card.Header>{title}</Card.Header>
+  <Card.Toolbar>{filters}</Card.Toolbar>
+  <div className="overflow-x-auto">
+    <table className="min-w-full table-fixed border-collapse">
+      <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
+        ...
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(row.status)}`}>
+            ...
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Card>
 ```
 
-Use the shared components in `src/components/ui/` instead of writing raw spans:
-
-| Component | File | When to use |
-|---|---|---|
-| `<StatusPill status="new" />` | `ui/StatusPill.jsx` | new / updated / deleted / unchanged |
-| `<CurationPill required={true} />` | `ui/CurationPill.jsx` | curation requirement |
-| `<ChallengeBadge challenge="Hard" />` | `ui/ChallengeBadge.jsx` | Hard / Easy |
-| `<ChangeTypeBadge type="Relevant" />` | `ui/ChangeTypeBadge.jsx` | Relevant / Not Relevant |
-| `<ChangeTypeCounts counts={...} />` | `ui/ChangeTypeBadge.jsx` | relevancy summary counts |
-| `<SummaryTriple label="Dishes" deleted={0} added={2} updated={1} />` | `ui/SummaryTriple.jsx` | deleted/new/updated count block |
+For sticky headers inside scroll containers, add `sticky top-0 z-20 bg-slate-100` to each `<th>`.
 
 ---
 
-## Buttons
+## Forms
 
-Default (neutral action):
+Inputs:
 ```
-rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100
-```
-
-Primary action:
-```
-rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100
-```
-
-Disabled state (append to any button):
-```
-disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400
-```
-
-Always include `type="button"` on non-submit buttons to prevent accidental form submission.
-
----
-
-## Form Controls
-
-Select:
-```
-rounded-md border border-slate-300 bg-white px-2 py-2 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none
+rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-blue-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400
 ```
 
 Checkbox:
@@ -144,36 +138,12 @@ Checkbox:
 h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500
 ```
 
-Checkbox label wrapper:
+Checkbox-chip wrapper (filter rows):
 ```
 inline-flex cursor-pointer items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50
 ```
 
----
-
-## Tables
-
-All tables use:
-```
-min-w-full table-fixed border-collapse
-```
-
-Table header row:
-```
-bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600
-```
-
-Sticky column headers (inside scrollable containers):
-```
-sticky top-0 z-20 bg-slate-100
-```
-
-Row separator:
-```
-border-b border-slate-100
-```
-
-Apply row background via `rowStyles(status)` from `src/components/ui/StatusPill.jsx`.
+`<RecordSelect>` is the standard `<select>` wrapper for record/option pickers.
 
 ---
 
@@ -185,36 +155,54 @@ All icons come from `lucide-react`. No other icon libraries.
 |---|---|
 | Inline with text | `h-3.5 w-3.5` |
 | Standalone / button | `h-4 w-4` |
-| Small inline (e.g. external link) | `h-3 w-3` |
+| Small inline (e.g. external link, micro) | `h-3 w-3` |
 
 ---
 
 ## File & Component Conventions
 
-### Where new files go
-
 | Type | Location |
 |---|---|
-| Reusable UI primitive (badge, pill, button) | `src/components/ui/` |
-| Feature component (table, page section) | `src/components/` |
+| Reusable UI primitive (Button, Badge, Modal, Card, KpiTile, EmptyState) | `src/components/ui/` |
+| Feature component (page, table, section) | `src/components/` |
 | Data transformation / business logic | `src/utils/` |
+| Data access / external services | `src/lib/` |
 
 ### Existing shared utilities — always import, never re-implement
 
-| Utility | File | Exports |
-|---|---|---|
-| Date formatting | `src/utils/formatDate.js` | `formatDate`, `parseDateValue` |
-| Hierarchy building | `src/utils/hierarchyUtils.js` | `buildHierarchy`, `collectTitleIds` |
-| Filtering / counting | `src/utils/filterUtils.js` | `filterChangedFieldsByRelevancy`, `hasVisibleChangedFields`, `getVisibleChangeTypeCounts`, `getTotalVisibleChangeTypeCounts`, `countVisibleStatuses`, `filterHierarchyByStatus`, `filterHierarchyByRelevancy` |
-| Export / download | `src/utils/exportComparison.js` | `buildComparisonExport`, `downloadExportFile` |
-| Diff logic | `src/utils/compareMessages.js` | `compareMessages`, `CHANGE_TYPE_RULES`, `CHALLENGE_RULES` |
+| Utility | File |
+|---|---|
+| Date formatting | `src/utils/formatDate.js` (`formatDate`, `parseDateValue`) |
+| Hierarchy building | `src/utils/hierarchyUtils.js` |
+| Filtering / counting | `src/utils/filterUtils.js` |
+| Export / download | `src/utils/exportComparison.js` |
+| Diff logic | `src/utils/compareMessages.js` |
 
-### What not to do
+### Hard "do not"s
 
-- Do not duplicate `formatDate` — it exists in `src/utils/formatDate.js`
-- Do not inline badge/pill markup — use the shared components in `src/components/ui/`
-- Do not introduce colors outside the five semantic groups
+- Do not inline a button — use `<Button>` / `<IconButton>`
+- Do not inline a pill or badge — use `<Badge>` (or one of the semantic wrappers)
+- Do not write a one-off modal — use `<Modal>` / `<ConfirmDialog>`
+- Do not write a card shell — use `<Card>`
+- Do not introduce colors outside the six semantic tones
 - Do not use `text-sm` or larger in data tables
 - Do not use `font-bold`
 - Do not add CSS modules, styled-components, or custom CSS classes
-- Do not use inline `style={{}}` except for dynamic computed values (e.g. `paddingLeft` for tree depth indentation)
+- Do not duplicate `formatDate`, hierarchy logic, or filter logic
+
+---
+
+## Standard "build a feature" prompt
+
+When adding a feature, paste the following expectations into your context:
+
+1. Use existing primitives. Never inline a button/pill/modal/card/KPI tile.
+2. Color is semantic only (`neutral | info | success | warning | danger | ai`).
+3. Type scale is fixed: `text-base` for page titles, `text-xs` for everything in data, never `text-sm` in tables, never `font-bold`.
+4. Every interactive element has hover + focus rings. Buttons get `type="button"` unless they submit.
+5. Modals: portal + focus-trap + ESC + scroll-lock (use `<Modal>`).
+6. Custom dropdowns expose `aria-haspopup` + `aria-expanded` and ideally arrow-key navigation.
+7. Clickable rows are keyboard-activatable (`role="button"`, `tabIndex={0}`, Enter/Space handlers).
+8. Empty / loading / error states must exist for every list (`<EmptyState>`).
+9. No comments unless the *why* is non-obvious.
+10. `grep` before creating a component — use the existing one or extend it.

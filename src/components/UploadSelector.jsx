@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Upload, Trash2, ChevronDown } from "lucide-react";
 import { listUploads, saveUpload, deleteUpload } from "../lib/csvUploads";
 import { formatDate } from "../utils/formatDate";
+import { Button } from "./ui/Button";
 
 function UploadSelector({ session, activeUploadId, onUploadSelect, onFileReady }) {
   const [uploads, setUploads] = useState([]);
@@ -103,16 +104,12 @@ function UploadSelector({ session, activeUploadId, onUploadSelect, onFileReady }
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
+      <Button onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
         <span className="max-w-[200px] truncate">
           {activeUpload ? activeUpload.name : "Select a CSV upload"}
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-      </button>
+      </Button>
 
       {open ? (
         <div className="absolute left-0 top-[calc(100%+4px)] z-50 w-80 rounded-lg border border-slate-200 bg-white shadow-md">
@@ -172,22 +169,21 @@ function UploadSelector({ session, activeUploadId, onUploadSelect, onFileReady }
                   className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
                 />
                 <div className="flex gap-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="tonal"
+                    tone="info"
                     onClick={handleSave}
                     disabled={!uploadName.trim() || uploading}
-                    className="flex-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                    className="flex-1"
                   >
                     {uploading ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     onClick={() => { setPendingFile(null); setUploadName(""); }}
                     disabled={uploading}
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
