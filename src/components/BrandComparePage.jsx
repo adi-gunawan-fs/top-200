@@ -41,6 +41,7 @@ function BrandComparePage({ group, onBack }) {
   // runningKeys: Set of shortKeys currently being processed
   const [runningKeys, setRunningKeys] = useState(new Set());
   const [isRunningAll, setIsRunningAll] = useState(false);
+  const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -278,7 +279,7 @@ function BrandComparePage({ group, onBack }) {
               </button>
               <button
                 type="button"
-                onClick={handleRunAll}
+                onClick={() => setRunAllConfirmOpen(true)}
                 disabled={!comparison || isRunningAll || eligibleItems.length === 0}
                 className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
               >
@@ -291,6 +292,32 @@ function BrandComparePage({ group, onBack }) {
                   ? "Running Analysis…"
                   : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""})`}
               </button>
+              {runAllConfirmOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+                  <div className="w-80 rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+                    <p className="text-sm font-semibold text-slate-800">Run analysis on all items?</p>
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      This will send <span className="font-medium text-slate-700">{eligibleItems.length} item{eligibleItems.length !== 1 ? "s" : ""}</span> to the AI models for analysis. Existing results will be overwritten.
+                    </p>
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRunAllConfirmOpen(false)}
+                        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setRunAllConfirmOpen(false); handleRunAll(); }}
+                        className="rounded-md border border-violet-400 bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                      >
+                        Run Analysis
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
             <p className="mt-1 text-xs text-slate-600">
