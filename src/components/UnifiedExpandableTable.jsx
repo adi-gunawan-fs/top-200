@@ -9,6 +9,7 @@ import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
 import { buildHierarchy, collectTitleIds } from "../utils/hierarchyUtils";
+import { getAnalysisReviewStatus, getAnalysisReviewTone } from "../utils/analysisReview";
 import {
   filterHierarchyByStatus,
   filterHierarchyByRelevancy,
@@ -122,6 +123,27 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
         />
       )}
     </>
+  );
+}
+
+function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningKeys, isEligible }) {
+  if (!isEligible) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  if (runningKeys.has(shortKey)) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  const status = getAnalysisReviewStatus(analysisResultsMap[shortKey], modelNames);
+  if (!status) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <Badge tone={getAnalysisReviewTone(status)} uppercase={false}>
+      {status}
+    </Badge>
   );
 }
 
@@ -279,7 +301,8 @@ export function UnifiedExpandableTable({
             <col className="w-36" />
             <col className="w-[420px]" />
             <col className="w-60" />
-            <col className="w-[560px]" />
+            <col className="w-[320px]" />
+            <col className="w-40" />
             <col className="w-72" />
           </colgroup>
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
@@ -288,13 +311,14 @@ export function UnifiedExpandableTable({
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Title / Name</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Analysis</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
+                <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
               </tr>
             ) : (
               rows.map((row) => {
@@ -333,6 +357,15 @@ export function UnifiedExpandableTable({
                     </td>
                     <td className="px-3 py-2">
                       <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <AnalysisStatusCell
+                        shortKey={shortKey}
+                        modelNames={modelNames ?? []}
+                        analysisResultsMap={analysisResultsMap}
+                        runningKeys={runningKeys}
+                        isEligible={isEligible}
+                      />
                     </td>
                     <td className="px-3 py-2">
                       {isEligible ? (

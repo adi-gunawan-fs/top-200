@@ -1,5 +1,6 @@
 import { Badge } from "./Badge";
 import { Modal } from "./Modal";
+import { formatAnalysisChangeStatus, formatAnalysisComplexity } from "../../utils/analysisReview";
 
 const COMPLEXITY_TONE = {
   EASY: "success",
@@ -11,6 +12,7 @@ const CHANGE_STATUS_COLOR = {
   NO_CHANGE: "text-slate-600",
   MINOR_CHANGE: "text-amber-700",
   SIGNIFICANT_CHANGE: "text-rose-700",
+  MAJOR_CHANGE: "text-rose-700",
 };
 
 function ModelResultColumn({ name, result }) {
@@ -32,17 +34,19 @@ function ModelResultColumn({ name, result }) {
     );
   }
 
-  const complexityTone = COMPLEXITY_TONE[result.overall_complexity] ?? "neutral";
-  const changeStatusColor = CHANGE_STATUS_COLOR[result.change_status] ?? "text-slate-600";
+  const normalizedComplexity = String(result.overall_complexity ?? "").trim().toUpperCase();
+  const normalizedChangeStatus = String(result.change_status ?? "").trim().toUpperCase();
+  const complexityTone = COMPLEXITY_TONE[normalizedComplexity] ?? "neutral";
+  const changeStatusColor = CHANGE_STATUS_COLOR[normalizedChangeStatus] ?? "text-slate-600";
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs font-semibold text-slate-800">{name}</p>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone={complexityTone}>{result.overall_complexity}</Badge>
+        <Badge tone={complexityTone} uppercase={false}>{formatAnalysisComplexity(result.overall_complexity)}</Badge>
         <span className={`text-[11px] font-medium ${changeStatusColor}`}>
-          {result.change_status?.replace(/_/g, " ")}
+          {formatAnalysisChangeStatus(result.change_status)}
         </span>
         <span className="text-[11px] text-slate-500">avg {result.average_score?.toFixed(1)}</span>
       </div>

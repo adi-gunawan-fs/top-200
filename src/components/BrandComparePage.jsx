@@ -16,19 +16,53 @@ import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { RecordSelect } from "./ui/RecordSelect";
 import { RulesTooltip, ColorCodeTable } from "./ui/RulesTooltip";
 import { SummaryTriple } from "./ui/SummaryTriple";
+import { AnalysisProgressModal } from "./ui/AnalysisProgressModal";
 import {
   UnifiedExpandableTable,
   DEFAULT_SELECTED_STATUSES,
   DEFAULT_SELECTED_RELEVANCIES,
 } from "./UnifiedExpandableTable";
-import { runBraintrustAnalysisAllModels, BRAINTRUST_MODELS } from "../lib/braintrust";
-import {
-  fetchAnalysisResults,
-  upsertAnalysisResult,
-} from "../lib/analysisResults";
+import { BRAINTRUST_MODELS } from "../lib/braintrust";
+import { fetchAnalysisResults } from "../lib/analysisResults";
+import { enqueueAnalysisJobs, fetchAnalysisJobs } from "../lib/analysisJobs";
 
 function makeShortKey(itemId, itemType) {
   return `${itemId}__${itemType}`;
+}
+
+function mapAnalysisResults(rows) {
+  const map = {};
+
+  rows.forEach((row) => {
+    const shortKey = makeShortKey(row.item_id, row.item_type);
+    const modelName = BRAINTRUST_MODELS.find((model) => model.slug === row.model_slug)?.name ?? row.model_slug;
+    if (!map[shortKey]) map[shortKey] = {};
+    map[shortKey][modelName] = row.result;
+  });
+
+  return map;
+}
+
+function mapAnalysisJobs(rows) {
+  const map = {};
+
+  rows.forEach((row) => {
+    map[makeShortKey(row.item_id, row.item_type)] = row;
+  });
+
+  return map;
+}
+
+function isJobRunning(status) {
+  return status === "pending" || status === "processing";
+}
+
+function hasAllModelResults(modelResults) {
+  if (!modelResults) {
+    return false;
+  }
+
+  return BRAINTRUST_MODELS.every((model) => modelResults[model.name]);
 }
 
 function BrandComparePage({ group, onBack }) {
@@ -39,9 +73,12 @@ function BrandComparePage({ group, onBack }) {
   const [selectedRelevancies, setSelectedRelevancies] = useState(DEFAULT_SELECTED_RELEVANCIES);
 
   const [analysisResultsMap, setAnalysisResultsMap] = useState({});
-  const [runningKeys, setRunningKeys] = useState(new Set());
+  const [analysisJobsMap, setAnalysisJobsMap] = useState({});
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
+  const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
+  const [bulkAnalysisStartedAt, setBulkAnalysisStartedAt] = useState(null);
+  const [bulkAnalysisItemKeys, setBulkAnalysisItemKeys] = useState([]);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -86,6 +123,12 @@ function BrandComparePage({ group, onBack }) {
     setSelectedRelevancies(DEFAULT_SELECTED_RELEVANCIES);
   }, [group.key]);
 
+  useEffect(() => {
+    setBulkAnalysisModalOpen(false);
+    setBulkAnalysisStartedAt(null);
+    setBulkAnalysisItemKeys([]);
+  }, [group.key]);
+
   const beforeRecord = records.find((record) => String(record.id) === beforeId);
   const afterRecord = records.find((record) => String(record.id) === afterId);
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
@@ -113,66 +156,113 @@ function BrandComparePage({ group, onBack }) {
     return allRows.filter((item) => selectedStatusSet.has(item.status) && hasRelevantExportChange(item));
   }, [comparison, dishRows, menuTitleRows, selectedStatusSet]);
 
-  const eligibleItemKeys = useMemo(() => {
-    return new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type)));
-  }, [eligibleItems]);
+  const eligibleItemKeys = useMemo(
+    () => new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type))),
+    [eligibleItems],
+  );
 
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       setAnalysisResultsMap({});
+      setAnalysisJobsMap({});
       return;
     }
 
-    fetchAnalysisResults(beforeId, afterId)
-      .then((rows) => {
-        const map = {};
-        rows.forEach((row) => {
-          const shortKey = makeShortKey(row.item_id, row.item_type);
-          const modelName = BRAINTRUST_MODELS.find((m) => m.slug === row.model_slug)?.name ?? row.model_slug;
-          if (!map[shortKey]) map[shortKey] = {};
-          map[shortKey][modelName] = row.result;
-        });
-        setAnalysisResultsMap(map);
-      })
-      .catch((err) => {
-        console.error("Failed to load analysis results:", err);
-      });
+    let cancelled = false;
+
+    async function loadAnalysisState() {
+      try {
+        const [resultRows, jobRows] = await Promise.all([
+          fetchAnalysisResults(beforeId, afterId),
+          fetchAnalysisJobs(beforeId, afterId),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setAnalysisResultsMap(mapAnalysisResults(resultRows));
+        setAnalysisJobsMap(mapAnalysisJobs(jobRows));
+      } catch (err) {
+        console.error("Failed to load analysis state:", err);
+      }
+    }
+
+    loadAnalysisState();
+
+    return () => {
+      cancelled = true;
+    };
   }, [beforeId, afterId]);
 
-  async function runAnalysisForItem(item) {
-    const shortKey = makeShortKey(item.id, item.type);
-    setRunningKeys((prev) => new Set([...prev, shortKey]));
-    try {
-      const exportItem = toBeforeAfterExport(item);
-      const resultsByModel = await runBraintrustAnalysisAllModels(exportItem);
+  useEffect(() => {
+    if (!beforeId || !afterId || beforeId === afterId) {
+      return undefined;
+    }
 
-      await Promise.all(
-        BRAINTRUST_MODELS.map(({ name, slug }) => {
-          const result = resultsByModel[name];
-          if (!result) return null;
-          return upsertAnalysisResult({
-            beforeRecordId: beforeId,
-            afterRecordId: afterId,
-            itemId: String(item.id),
-            itemType: String(item.type),
-            modelSlug: slug,
-            result,
-          });
-        }).filter(Boolean),
-      );
+    const hasRunningJobs = Object.values(analysisJobsMap).some((job) => isJobRunning(job?.status));
+    if (!hasRunningJobs) {
+      return undefined;
+    }
 
-      setAnalysisResultsMap((prev) => ({
-        ...prev,
-        [shortKey]: { ...(prev[shortKey] ?? {}), ...resultsByModel },
-      }));
-    } catch (err) {
-      console.error("Analysis failed for item", item.id, err);
-    } finally {
-      setRunningKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(shortKey);
-        return next;
+    const intervalId = window.setInterval(async () => {
+      try {
+        const [resultRows, jobRows] = await Promise.all([
+          fetchAnalysisResults(beforeId, afterId),
+          fetchAnalysisJobs(beforeId, afterId),
+        ]);
+
+        setAnalysisResultsMap(mapAnalysisResults(resultRows));
+        setAnalysisJobsMap(mapAnalysisJobs(jobRows));
+      } catch (err) {
+        console.error("Failed to refresh analysis state:", err);
+      }
+    }, 3000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [analysisJobsMap, beforeId, afterId]);
+
+  async function runAnalysisForItems(items) {
+    if (!beforeId || !afterId || items.length === 0) {
+      return;
+    }
+
+    await enqueueAnalysisJobs({
+      beforeRecordId: beforeId,
+      afterRecordId: afterId,
+      jobs: items.map((item) => ({
+        itemId: String(item.id),
+        itemType: String(item.type),
+        exportItem: toBeforeAfterExport(item),
+      })),
+    });
+
+    setAnalysisJobsMap((prev) => {
+      const next = { ...prev };
+
+      items.forEach((item) => {
+        next[makeShortKey(item.id, item.type)] = {
+          ...next[makeShortKey(item.id, item.type)],
+          item_id: String(item.id),
+          item_type: String(item.type),
+          before_record_id: String(beforeId),
+          after_record_id: String(afterId),
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        };
       });
+
+      return next;
+    });
+  }
+
+  async function runAnalysisForItem(item) {
+    try {
+      await runAnalysisForItems([item]);
+    } catch (err) {
+      console.error("Failed to enqueue analysis for item", item.id, err);
     }
   }
 
@@ -180,7 +270,9 @@ function BrandComparePage({ group, onBack }) {
     if (!comparison || eligibleItems.length === 0) return;
     setIsRunningAll(true);
     try {
-      await Promise.all(eligibleItems.map((item) => runAnalysisForItem(item)));
+      await runAnalysisForItems(eligibleItems);
+    } catch (err) {
+      console.error("Failed to enqueue analysis jobs:", err);
     } finally {
       setIsRunningAll(false);
     }
@@ -249,7 +341,63 @@ function BrandComparePage({ group, onBack }) {
     );
   }
 
-  const pendingCount = eligibleItems.length - Object.keys(analysisResultsMap).filter((k) => eligibleItemKeys.has(k)).length;
+  const runningKeys = useMemo(() => {
+    const keys = new Set();
+
+    Object.entries(analysisJobsMap).forEach(([shortKey, job]) => {
+      if (isJobRunning(job?.status)) {
+        keys.add(shortKey);
+      }
+    });
+
+    return keys;
+  }, [analysisJobsMap]);
+
+  const queuedOrRunningCount = useMemo(
+    () => Object.values(analysisJobsMap)
+      .filter((job) => isJobRunning(job?.status))
+      .filter((job) => eligibleItemKeys.has(makeShortKey(job.item_id, job.item_type))).length,
+    [analysisJobsMap, eligibleItemKeys],
+  );
+
+  const pendingCount = eligibleItems.length - Object.keys(analysisResultsMap).filter((key) => eligibleItemKeys.has(key)).length;
+
+  const bulkAnalysisStats = useMemo(() => {
+    if (bulkAnalysisItemKeys.length === 0) {
+      return {
+        totalCount: 0,
+        queuedCount: 0,
+        processingCount: 0,
+        completedCount: 0,
+        failedCount: 0,
+      };
+    }
+
+    return bulkAnalysisItemKeys.reduce((acc, shortKey) => {
+      const job = analysisJobsMap[shortKey];
+      const results = analysisResultsMap[shortKey];
+
+      acc.totalCount += 1;
+
+      if (job?.status === "pending") {
+        acc.queuedCount += 1;
+      } else if (job?.status === "processing") {
+        acc.processingCount += 1;
+      } else if (job?.status === "failed") {
+        acc.failedCount += 1;
+      } else if (job?.status === "completed" || hasAllModelResults(results)) {
+        acc.completedCount += 1;
+      }
+
+      return acc;
+    }, {
+      totalCount: 0,
+      queuedCount: 0,
+      processingCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+    });
+  }, [analysisJobsMap, analysisResultsMap, bulkAnalysisItemKeys]);
 
   return (
     <section className="flex flex-col gap-4">
@@ -282,17 +430,23 @@ function BrandComparePage({ group, onBack }) {
                   <Play className="h-3.5 w-3.5" />
                 )}
                 {isRunningAll
-                  ? "Running Analysis…"
-                  : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""})`}
+                  ? "Queueing Analysis..."
+                  : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""}${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
               </Button>
               <ConfirmDialog
                 open={runAllConfirmOpen}
                 title="Run analysis on all items?"
-                description={`This will send ${eligibleItems.length} item${eligibleItems.length !== 1 ? "s" : ""} to the AI models for analysis. Existing results will be overwritten.`}
+                description={`This will queue ${eligibleItems.length} item${eligibleItems.length !== 1 ? "s" : ""} for server-side analysis. The jobs keep running even if you close the browser after they are queued.`}
                 confirmLabel="Run Analysis"
                 confirmTone="ai"
                 onCancel={() => setRunAllConfirmOpen(false)}
-                onConfirm={() => { setRunAllConfirmOpen(false); handleRunAll(); }}
+                onConfirm={() => {
+                  setRunAllConfirmOpen(false);
+                  setBulkAnalysisStartedAt(Date.now());
+                  setBulkAnalysisItemKeys(eligibleItems.map((item) => makeShortKey(item.id, item.type)));
+                  setBulkAnalysisModalOpen(true);
+                  handleRunAll();
+                }}
               />
             </div>
             <h2 className="mt-2 text-base font-semibold text-slate-900">{group.brandName}</h2>
@@ -373,10 +527,23 @@ function BrandComparePage({ group, onBack }) {
             runningKeys={runningKeys}
             onRunOne={runAnalysisForItem}
             eligibleItemKeys={eligibleItemKeys}
-            modelNames={BRAINTRUST_MODELS.map((m) => m.name)}
+            modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
           />
         </div>
       ) : null}
+
+      <AnalysisProgressModal
+        open={bulkAnalysisModalOpen}
+        onClose={() => setBulkAnalysisModalOpen(false)}
+        brandName={group.brandName}
+        totalCount={bulkAnalysisStats.totalCount}
+        queuedCount={bulkAnalysisStats.queuedCount}
+        processingCount={bulkAnalysisStats.processingCount}
+        completedCount={bulkAnalysisStats.completedCount}
+        failedCount={bulkAnalysisStats.failedCount}
+        startedAt={bulkAnalysisStartedAt}
+        isQueueing={isRunningAll}
+      />
     </section>
   );
 }
