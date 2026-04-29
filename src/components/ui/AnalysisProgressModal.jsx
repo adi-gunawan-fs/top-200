@@ -220,7 +220,8 @@ export function AnalysisProgressModal({
   }, [open]);
 
   const activeRun = runs.find((run) => isRunActive(run)) ?? null;
-  const pastRuns = runs.filter((run) => !isRunActive(run));
+  const latestRun = activeRun ?? (runs.length > 0 ? runs[0] : null);
+  const pastRuns = runs.filter((run) => run !== latestRun && !isRunActive(run));
   const title = activeRun ? "Bulk Analysis In Progress" : "Bulk Analysis History";
   const subtitle = brandName ? `${brandName} | ${runs.length} run${runs.length !== 1 ? "s" : ""}` : undefined;
 
@@ -244,20 +245,18 @@ export function AnalysisProgressModal({
           </div>
         ) : (
           <>
-            {activeRun ? (
+            {latestRun && (
               <RunCard
-                key={activeRun.id}
-                run={activeRun}
+                key={latestRun.id}
+                run={latestRun}
                 index={0}
                 now={now}
-                showLockNote={!dismissible}
-                onCancel={onCancelRun ? () => onCancelRun(activeRun.id) : undefined}
+                showLockNote={!dismissible && Boolean(activeRun)}
+                onCancel={activeRun && onCancelRun ? () => onCancelRun(activeRun.id) : undefined}
               />
-            ) : (
-              <RunHistoryTable runs={runs} />
             )}
 
-            {pastRuns.length > 0 && activeRun && (
+            {pastRuns.length > 0 && (
               <div className="mt-3">
                 <button
                   onClick={() => setShowHistory((v) => !v)}
