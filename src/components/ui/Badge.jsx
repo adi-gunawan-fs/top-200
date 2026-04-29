@@ -5,6 +5,7 @@ const TONE_CLASSES = {
   warning: "border-amber-200 bg-amber-50 text-amber-700",
   danger: "border-rose-200 bg-rose-50 text-rose-700",
   ai: "border-violet-200 bg-violet-50 text-violet-700",
+  pink: "border-pink-200 bg-pink-50 text-pink-700",
 };
 
 const SIZE_CLASSES = {

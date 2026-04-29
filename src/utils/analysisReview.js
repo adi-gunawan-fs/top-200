@@ -53,6 +53,13 @@ function getComparableSignature(result) {
   return `${complexity}__${changeStatus}`;
 }
 
+function deriveStatus(changeStatus, complexity) {
+  if (!changeStatus) return null;
+  const isMajor = changeStatus === "MAJOR_CHANGE";
+  if (!isMajor) return "Resolved";
+  return complexity === "Hard" ? "Critical Review" : "Low Review";
+}
+
 export function getAnalysisReviewStatus(modelResults, modelNames = []) {
   const signatures = modelNames
     .map((name) => getComparableSignature(modelResults?.[name]))
@@ -62,11 +69,19 @@ export function getAnalysisReviewStatus(modelResults, modelNames = []) {
     return null;
   }
 
-  return new Set(signatures).size > 1 ? "For Review" : "Resolved";
+  if (new Set(signatures).size > 1) return "Judge Confused";
+
+  // All models agree — derive status from the shared signature
+  const result = modelResults?.[modelNames[0]];
+  const changeStatus = normalizeChangeStatus(result?.change_status);
+  const complexity = calcComplexity(result?.parameter_scores);
+  return deriveStatus(changeStatus, complexity);
 }
 
 export function getAnalysisReviewTone(status) {
-  if (status === "For Review") return "warning";
+  if (status === "Judge Confused") return "pink";
+  if (status === "Critical Review") return "danger";
+  if (status === "Low Review") return "warning";
   if (status === "Resolved") return "success";
   return "neutral";
 }

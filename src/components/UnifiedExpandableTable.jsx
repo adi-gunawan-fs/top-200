@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, Search, Sparkles } from "lucide-react";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
 import { Button, IconButton } from "./ui/Button";
@@ -116,9 +116,9 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
         <span className="text-[10px] text-rose-500" title={job?.error_message ?? "Analysis failed"}>
           Failed
         </span>
-        <IconButton onClick={handleRerun} title={job?.error_message ?? "Retry analysis"} aria-label="Retry analysis">
-          <RefreshCw className="h-3.5 w-3.5" />
-        </IconButton>
+        <Button variant="tonal" tone="danger" size="xs" onClick={handleRerun} title={job?.error_message ?? "Retry analysis"} aria-label="Retry analysis">
+          <Sparkles className="h-2.5 w-2.5" />
+        </Button>
       </div>
     );
   }
@@ -138,9 +138,9 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
         <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
           <Search className="h-3.5 w-3.5" />
         </IconButton>
-        <IconButton onClick={handleRerun} title={isFailed ? (job?.error_message ?? "Last run failed — retry") : "Rerun analysis"} aria-label="Rerun analysis">
-          <RefreshCw className={`h-3.5 w-3.5 ${isFailed ? "text-rose-500" : ""}`} />
-        </IconButton>
+        <Button variant="tonal" tone={isFailed ? "danger" : "info"} size="xs" onClick={handleRerun} title={isFailed ? (job?.error_message ?? "Last run failed — retry") : "Rerun analysis"} aria-label="Rerun analysis">
+          <Sparkles className="h-2.5 w-2.5" />
+        </Button>
       </div>
 
       {modalOpen && (
@@ -170,8 +170,15 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
     return <span className="text-slate-400">-</span>;
   }
 
+  const icon = status === "Critical Review"
+    ? <AlertTriangle className="h-2.5 w-2.5" />
+    : status === "Low Review"
+      ? <AlertTriangle className="h-2.5 w-2.5" />
+      : null;
+
   return (
     <Badge tone={getAnalysisReviewTone(status)} uppercase={false}>
+      {icon}
       {status}
     </Badge>
   );
