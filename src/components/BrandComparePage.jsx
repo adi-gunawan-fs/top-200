@@ -23,8 +23,9 @@ import {
   DEFAULT_SELECTED_RELEVANCIES,
 } from "./UnifiedExpandableTable";
 import { BRAINTRUST_MODELS } from "../lib/braintrust";
-import { fetchAnalysisResults } from "../lib/analysisResults";
+import { fetchAnalysisResults, fetchBestAnalysisPair } from "../lib/analysisResults";
 import { enqueueAnalysisJobs, fetchAnalysisJobs } from "../lib/analysisJobs";
+import { fetchAnalysisBulkRuns } from "../lib/analysisBulkRuns";
 
 function makeShortKey(itemId, itemType) {
   return `${itemId}__${itemType}`;
@@ -53,16 +54,12 @@ function mapAnalysisJobs(rows) {
   return map;
 }
 
-function getSharedJobTimestamp(job) {
-  return job?.started_at ?? job?.created_at ?? job?.updated_at ?? null;
-}
-
 function isJobRunning(status) {
   return status === "pending" || status === "processing";
 }
 
-function isBulkJob(job) {
-  return job?.trigger_mode === "bulk";
+function isBulkRunActive(run) {
+  return run?.status === "pending" || run?.status === "processing";
 }
 
 function hasAllModelResults(modelResults) {
@@ -91,11 +88,10 @@ function BrandComparePage({ group, onBack }) {
 
   const [analysisResultsMap, setAnalysisResultsMap] = useState({});
   const [analysisJobsMap, setAnalysisJobsMap] = useState({});
+  const [bulkRuns, setBulkRuns] = useState([]);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
-  const [bulkAnalysisStartedAt, setBulkAnalysisStartedAt] = useState(null);
-  const [bulkAnalysisItemKeys, setBulkAnalysisItemKeys] = useState([]);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
 
   const recordsWithIndex = useMemo(
@@ -132,8 +128,20 @@ function BrandComparePage({ group, onBack }) {
     const latest = sorted[sorted.length - 1]?.record ?? records[records.length - 1];
     const before = sorted[sorted.length - 2]?.record ?? sorted[0]?.record ?? records[0];
 
-    setBeforeId(String(before.id));
-    setAfterId(String(latest.id));
+    const recordIds = records.map((r) => String(r.id));
+
+    fetchBestAnalysisPair(recordIds).then((best) => {
+      if (best) {
+        setBeforeId(best.beforeRecordId);
+        setAfterId(best.afterRecordId);
+      } else {
+        setBeforeId(String(before.id));
+        setAfterId(String(latest.id));
+      }
+    }).catch(() => {
+      setBeforeId(String(before.id));
+      setAfterId(String(latest.id));
+    });
   }, [group.key, records, recordsWithIndex]);
 
   useEffect(() => {
@@ -143,42 +151,21 @@ function BrandComparePage({ group, onBack }) {
 
   useEffect(() => {
     setBulkAnalysisModalOpen(false);
-    setBulkAnalysisStartedAt(null);
-    setBulkAnalysisItemKeys([]);
+    setBulkRuns([]);
     setHadActiveBulkJobs(false);
   }, [group.key]);
 
   useEffect(() => {
-    const runningJobEntries = Object.entries(analysisJobsMap)
-      .filter(([, job]) => isJobRunning(job?.status) && isBulkJob(job));
+    const activeBulkRun = bulkRuns.find((run) => isBulkRunActive(run));
 
-    if (runningJobEntries.length > 0) {
+    if (activeBulkRun) {
       setBulkAnalysisModalOpen(true);
       setHadActiveBulkJobs(true);
-
-      const runningKeys = runningJobEntries.map(([shortKey]) => shortKey);
-      const earliestTimestamp = runningJobEntries
-        .map(([, job]) => getSharedJobTimestamp(job))
-        .filter(Boolean)
-        .map((value) => new Date(value).getTime())
-        .filter((value) => !Number.isNaN(value))
-        .sort((a, b) => a - b)[0];
-
-      setBulkAnalysisItemKeys((prev) => {
-        if (prev.length > 0) {
-          return prev;
-        }
-        return runningKeys;
-      });
-
-      if (earliestTimestamp) {
-        setBulkAnalysisStartedAt((prev) => prev ?? earliestTimestamp);
-      }
     } else if (hadActiveBulkJobs && !isRunningAll) {
       setBulkAnalysisModalOpen(false);
       setHadActiveBulkJobs(false);
     }
-  }, [analysisJobsMap, bulkAnalysisItemKeys.length, bulkAnalysisStartedAt, hadActiveBulkJobs, isRunningAll]);
+  }, [bulkRuns, hadActiveBulkJobs, isRunningAll]);
 
   const beforeRecord = records.find((record) => String(record.id) === beforeId);
   const afterRecord = records.find((record) => String(record.id) === afterId);
@@ -228,9 +215,10 @@ function BrandComparePage({ group, onBack }) {
 
     async function loadAnalysisState() {
       try {
-        const [resultRows, jobRows] = await Promise.all([
+        const [resultRows, jobRows, bulkRunRows] = await Promise.all([
           fetchAnalysisResults(beforeId, afterId),
           fetchAnalysisJobs(beforeId, afterId),
+          fetchAnalysisBulkRuns(beforeId, afterId),
         ]);
 
         if (cancelled) {
@@ -239,6 +227,7 @@ function BrandComparePage({ group, onBack }) {
 
         setAnalysisResultsMap(mapAnalysisResults(resultRows));
         setAnalysisJobsMap(mapAnalysisJobs(jobRows));
+        setBulkRuns(bulkRunRows);
       } catch (err) {
         console.error("Failed to load analysis state:", err);
       }
@@ -263,13 +252,15 @@ function BrandComparePage({ group, onBack }) {
 
     const intervalId = window.setInterval(async () => {
       try {
-        const [resultRows, jobRows] = await Promise.all([
+        const [resultRows, jobRows, bulkRunRows] = await Promise.all([
           fetchAnalysisResults(beforeId, afterId),
           fetchAnalysisJobs(beforeId, afterId),
+          fetchAnalysisBulkRuns(beforeId, afterId),
         ]);
 
         setAnalysisResultsMap(mapAnalysisResults(resultRows));
         setAnalysisJobsMap(mapAnalysisJobs(jobRows));
+        setBulkRuns(bulkRunRows);
       } catch (err) {
         console.error("Failed to refresh analysis state:", err);
       }
@@ -303,19 +294,9 @@ function BrandComparePage({ group, onBack }) {
       ...mapAnalysisJobs(queuedJobs),
     }));
 
-    const earliestTimestamp = queuedJobs
-      .map((job) => getSharedJobTimestamp(job))
-      .filter(Boolean)
-      .map((value) => new Date(value).getTime())
-      .filter((value) => !Number.isNaN(value))
-      .sort((a, b) => a - b)[0];
-
-    if (queuedJobs.length > 0 && triggerMode === "bulk") {
-      setBulkAnalysisItemKeys(items.map((item) => makeShortKey(item.id, item.type)));
-    }
-
-    if (earliestTimestamp && triggerMode === "bulk") {
-      setBulkAnalysisStartedAt(earliestTimestamp);
+    if (triggerMode === "bulk") {
+      const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
+      setBulkRuns(bulkRunRows);
     }
   }
 
@@ -421,45 +402,8 @@ function BrandComparePage({ group, onBack }) {
     [analysisJobsMap, eligibleItemKeys],
   );
 
-  const bulkAnalysisStats = useMemo(() => {
-    if (bulkAnalysisItemKeys.length === 0) {
-      return {
-        totalCount: 0,
-        queuedCount: 0,
-        processingCount: 0,
-        completedCount: 0,
-        failedCount: 0,
-      };
-    }
-
-    return bulkAnalysisItemKeys.reduce((acc, shortKey) => {
-      const job = analysisJobsMap[shortKey];
-      const results = analysisResultsMap[shortKey];
-
-      acc.totalCount += 1;
-
-      if (job?.status === "pending") {
-        acc.queuedCount += 1;
-      } else if (job?.status === "processing") {
-        acc.processingCount += 1;
-      } else if (job?.status === "failed") {
-        acc.failedCount += 1;
-      } else if (job?.status === "completed" || hasAllModelResults(results)) {
-        acc.completedCount += 1;
-      }
-
-      return acc;
-    }, {
-      totalCount: 0,
-      queuedCount: 0,
-      processingCount: 0,
-      completedCount: 0,
-      failedCount: 0,
-    });
-  }, [analysisJobsMap, analysisResultsMap, bulkAnalysisItemKeys]);
-
-  const hasActiveAnalysisJobs = bulkAnalysisStats.queuedCount + bulkAnalysisStats.processingCount > 0 || isRunningAll;
-  const hasBulkAnalysisSummary = bulkAnalysisStats.totalCount > 0;
+  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll;
+  const hasBulkAnalysisSummary = bulkRuns.length > 0;
 
   return (
     <section className="flex flex-col gap-4">
@@ -606,13 +550,7 @@ function BrandComparePage({ group, onBack }) {
         open={bulkAnalysisModalOpen}
         onClose={() => setBulkAnalysisModalOpen(false)}
         brandName={group.brandName}
-        totalCount={bulkAnalysisStats.totalCount}
-        queuedCount={bulkAnalysisStats.queuedCount}
-        processingCount={bulkAnalysisStats.processingCount}
-        completedCount={bulkAnalysisStats.completedCount}
-        failedCount={bulkAnalysisStats.failedCount}
-        startedAt={bulkAnalysisStartedAt}
-        isQueueing={isRunningAll}
+        runs={bulkRuns}
         dismissible={!hasActiveAnalysisJobs}
       />
     </section>

@@ -119,6 +119,7 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
   const afterRecordId = String(job.after_record_id);
   const itemId = String(job.item_id);
   const itemType = String(job.item_type);
+  const batchId = job.batch_id ? String(job.batch_id) : null;
   const exportItem = job.export_item as Record<string, unknown>;
 
   await serviceClient
@@ -130,6 +131,10 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
       error_message: null,
     })
     .eq("id", jobId);
+
+  if (batchId) {
+    await refreshBulkRun(serviceClient, batchId);
+  }
 
   try {
     const modelEntries = await runBraintrustAnalysisAllModels(exportItem);
@@ -165,6 +170,10 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
     if (completeError) {
       throw completeError;
     }
+
+    if (batchId) {
+      await refreshBulkRun(serviceClient, batchId);
+    }
   } catch (err) {
     await serviceClient
       .from("analysis_jobs")
@@ -174,6 +183,49 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
         error_message: err instanceof Error ? err.message : String(err),
       })
       .eq("id", jobId);
+
+    if (batchId) {
+      await refreshBulkRun(serviceClient, batchId);
+    }
+  }
+}
+
+async function refreshBulkRun(serviceClient: ReturnType<typeof createClient>, batchId: string) {
+  const { data: jobs, error: jobsError } = await serviceClient
+    .from("analysis_jobs")
+    .select("status")
+    .eq("batch_id", batchId);
+
+  if (jobsError) {
+    throw jobsError;
+  }
+
+  const queuedCount = (jobs ?? []).filter((job) => job.status === "pending").length;
+  const processingCount = (jobs ?? []).filter((job) => job.status === "processing").length;
+  const completedCount = (jobs ?? []).filter((job) => job.status === "completed").length;
+  const failedCount = (jobs ?? []).filter((job) => job.status === "failed").length;
+  const totalItems = jobs?.length ?? 0;
+
+  const isFinished = queuedCount === 0 && processingCount === 0 && totalItems > 0;
+  const status = isFinished
+    ? (failedCount > 0 ? "failed" : "completed")
+    : (processingCount > 0 ? "processing" : "pending");
+
+  const { error: updateError } = await serviceClient
+    .from("analysis_bulk_runs")
+    .update({
+      status,
+      total_items: totalItems,
+      queued_count: queuedCount,
+      processing_count: processingCount,
+      completed_count: completedCount,
+      failed_count: failedCount,
+      completed_at: isFinished ? new Date().toISOString() : null,
+    })
+    .eq("id", batchId);
+
+  if (updateError) {
+    throw updateError;
   }
 }
 
@@ -228,12 +280,39 @@ Deno.serve(async (req) => {
     return json({ error: "beforeRecordId, afterRecordId, and jobs are required." }, 400);
   }
 
+  let batchId: string | null = null;
+
+  if (triggerMode === "bulk") {
+    const { data: batchRow, error: batchError } = await serviceClient
+      .from("analysis_bulk_runs")
+      .insert({
+        before_record_id: beforeRecordId,
+        after_record_id: afterRecordId,
+        status: "pending",
+        total_items: jobs.length,
+        queued_count: jobs.length,
+        processing_count: 0,
+        completed_count: 0,
+        failed_count: 0,
+        queued_by: user.id,
+        started_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (batchError) {
+      return json({ error: batchError.message }, 500);
+    }
+
+    batchId = String(batchRow.id);
+  }
+
   const rows = jobs.map((job: Record<string, unknown>) => ({
     before_record_id: beforeRecordId,
     after_record_id: afterRecordId,
     item_id: String(job.itemId ?? ""),
     item_type: String(job.itemType ?? ""),
-    trigger_mode: triggerMode,
+    batch_id: batchId,
     export_item: job.exportItem ?? {},
     status: "pending",
     error_message: null,
@@ -251,10 +330,14 @@ Deno.serve(async (req) => {
     .upsert(rows, {
       onConflict: "before_record_id,after_record_id,item_id,item_type",
     })
-    .select("id, before_record_id, after_record_id, item_id, item_type, trigger_mode, status, error_message, started_at, completed_at, created_at, updated_at, export_item");
+    .select("id, before_record_id, after_record_id, item_id, item_type, batch_id, status, error_message, started_at, completed_at, created_at, updated_at, export_item");
 
   if (queueError) {
     return json({ error: queueError.message }, 500);
+  }
+
+  if (batchId) {
+    await refreshBulkRun(serviceClient, batchId);
   }
 
   EdgeRuntime.waitUntil(
