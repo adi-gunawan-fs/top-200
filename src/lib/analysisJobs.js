@@ -31,13 +31,14 @@ export async function cancelBulkRun(batchId) {
   if (runError) throw runError;
 }
 
-export async function enqueueAnalysisJobs({ beforeRecordId, afterRecordId, jobs, triggerMode = "single" }) {
+export async function enqueueAnalysisJobs({ beforeRecordId, afterRecordId, jobs, triggerMode = "single", forceRerun = false }) {
   const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, {
     body: {
       action: "enqueue",
       beforeRecordId: String(beforeRecordId),
       afterRecordId: String(afterRecordId),
       triggerMode,
+      forceRerun,
       jobs,
     },
   });

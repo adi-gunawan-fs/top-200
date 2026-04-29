@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Play, Loader2, Info } from "lucide-react";
+import { ArrowLeft, Download, Play, RefreshCw, Loader2, Info } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
@@ -44,11 +44,11 @@ function mapAnalysisResults(rows) {
   return map;
 }
 
-function mapAnalysisJobs(rows) {
+function mapAnalysisJobs(rows, forceStatus) {
   const map = {};
 
   rows.forEach((row) => {
-    map[makeShortKey(row.item_id, row.item_type)] = row;
+    map[makeShortKey(row.item_id, row.item_type)] = forceStatus ? { ...row, status: forceStatus } : row;
   });
 
   return map;
@@ -75,7 +75,9 @@ function BrandComparePage({ group, onBack }) {
   const [analysisJobsMap, setAnalysisJobsMap] = useState({});
   const [bulkRuns, setBulkRuns] = useState([]);
   const [isRunningAll, setIsRunningAll] = useState(false);
+  const [isRerunningAll, setIsRerunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
+  const [rerunAllConfirmOpen, setRerunAllConfirmOpen] = useState(false);
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
 
@@ -192,6 +194,14 @@ function BrandComparePage({ group, onBack }) {
     [eligibleItems, analysisJobsMap],
   );
 
+  const rerunableItems = useMemo(
+    () => eligibleItems.filter((item) => {
+      const job = analysisJobsMap[makeShortKey(item.id, item.type)];
+      return !isJobRunning(job?.status);
+    }),
+    [eligibleItems, analysisJobsMap],
+  );
+
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       setAnalysisResultsMap({});
@@ -267,7 +277,7 @@ function BrandComparePage({ group, onBack }) {
       jobs: [{ itemId: String(item.id), itemType: String(item.type), exportItem: toBeforeAfterExport(item) }],
     });
     const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
-    setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs) }));
+    setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
   }
 
   async function handleRunAll() {
@@ -285,13 +295,75 @@ function BrandComparePage({ group, onBack }) {
         })),
       });
       const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
-      setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs) }));
+      setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
       const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
       setBulkRuns(bulkRunRows);
     } catch (err) {
       console.error("Failed to enqueue analysis jobs:", err);
     } finally {
       setIsRunningAll(false);
+    }
+  }
+
+  async function handleRerunOne(item) {
+    const shortKey = makeShortKey(item.id, item.type);
+    setAnalysisResultsMap((prev) => {
+      const next = { ...prev };
+      delete next[shortKey];
+      return next;
+    });
+    setAnalysisJobsMap((prev) => {
+      const next = { ...prev };
+      delete next[shortKey];
+      return next;
+    });
+
+    const response = await enqueueAnalysisJobs({
+      beforeRecordId: beforeId,
+      afterRecordId: afterId,
+      triggerMode: "single",
+      forceRerun: true,
+      jobs: [{ itemId: String(item.id), itemType: String(item.type), exportItem: toBeforeAfterExport(item) }],
+    });
+    const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
+    setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
+  }
+
+  async function handleRerunAll() {
+    if (!comparison || rerunableItems.length === 0) return;
+    setIsRerunningAll(true);
+    try {
+      const rerunKeys = new Set(rerunableItems.map((item) => makeShortKey(item.id, item.type)));
+      setAnalysisResultsMap((prev) => {
+        const next = { ...prev };
+        rerunKeys.forEach((key) => delete next[key]);
+        return next;
+      });
+      setAnalysisJobsMap((prev) => {
+        const next = { ...prev };
+        rerunKeys.forEach((key) => delete next[key]);
+        return next;
+      });
+
+      const response = await enqueueAnalysisJobs({
+        beforeRecordId: beforeId,
+        afterRecordId: afterId,
+        triggerMode: "bulk",
+        forceRerun: true,
+        jobs: rerunableItems.map((item) => ({
+          itemId: String(item.id),
+          itemType: String(item.type),
+          exportItem: toBeforeAfterExport(item),
+        })),
+      });
+      const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
+      setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
+      const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
+      setBulkRuns(bulkRunRows);
+    } catch (err) {
+      console.error("Failed to enqueue rerun analysis jobs:", err);
+    } finally {
+      setIsRerunningAll(false);
     }
   }
 
@@ -393,7 +465,7 @@ function BrandComparePage({ group, onBack }) {
     [analysisJobsMap, eligibleItemKeys],
   );
 
-  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll;
+  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll || isRerunningAll;
   const hasBulkAnalysisSummary = bulkRuns.length > 0;
 
   return (
@@ -451,6 +523,34 @@ function BrandComparePage({ group, onBack }) {
                   setRunAllConfirmOpen(false);
                   setBulkAnalysisModalOpen(true);
                   handleRunAll();
+                }}
+              />
+              <Button
+                variant="tonal"
+                tone="neutral"
+                onClick={() => setRerunAllConfirmOpen(true)}
+                disabled={!comparison || isRerunningAll || rerunableItems.length === 0}
+              >
+                {isRerunningAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {isRerunningAll
+                  ? "Queueing Rerun..."
+                  : `Rerun All (${rerunableItems.length})`}
+              </Button>
+              <ConfirmDialog
+                open={rerunAllConfirmOpen}
+                title="Rerun analysis on all items?"
+                description={`This will rerun analysis for all ${rerunableItems.length} eligible item${rerunableItems.length !== 1 ? "s" : ""}, replacing any existing results. The jobs keep running even if you close the browser after they are queued.`}
+                confirmLabel="Rerun Analysis"
+                confirmTone="neutral"
+                onCancel={() => setRerunAllConfirmOpen(false)}
+                onConfirm={() => {
+                  setRerunAllConfirmOpen(false);
+                  setBulkAnalysisModalOpen(true);
+                  handleRerunAll();
                 }}
               />
             </div>
@@ -529,8 +629,10 @@ function BrandComparePage({ group, onBack }) {
             selectedRelevancies={selectedRelevancies}
             setSelectedRelevancies={setSelectedRelevancies}
             analysisResultsMap={analysisResultsMap}
+            analysisJobsMap={analysisJobsMap}
             runningKeys={runningKeys}
             onRunOne={handleRunOne}
+            onRerunOne={handleRerunOne}
             eligibleItemKeys={eligibleItemKeys}
             modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
           />

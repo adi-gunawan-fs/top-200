@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Sparkles } from "lucide-react";
+import { Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
 import { Button, IconButton } from "./ui/Button";
@@ -66,9 +66,10 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
   );
 }
 
-function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningKeys, onRunOne }) {
+function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, runningKeys, onRunOne, onRerunOne }) {
   const modelResults = analysisResultsMap[shortKey] ?? {};
   const isRunning = runningKeys.has(shortKey);
+  const isFailed = job?.status === "failed";
   const hasAnyResult = modelNames.some((name) => modelResults[name] && !modelResults[name].error);
   const [modalOpen, setModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -77,6 +78,15 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
     setIsSending(true);
     try {
       await onRunOne(item);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function handleRerun() {
+    setIsSending(true);
+    try {
+      await onRerunOne(item);
     } finally {
       setIsSending(false);
     }
@@ -100,6 +110,19 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
     );
   }
 
+  if (isFailed && !hasAnyResult) {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-rose-500" title={job?.error_message ?? "Analysis failed"}>
+          Failed
+        </span>
+        <IconButton onClick={handleRerun} title={job?.error_message ?? "Retry analysis"} aria-label="Retry analysis">
+          <RefreshCw className="h-3.5 w-3.5" />
+        </IconButton>
+      </div>
+    );
+  }
+
   if (!hasAnyResult) {
     return (
       <Button variant="tonal" tone="info" size="xs" onClick={handleRun}>
@@ -111,9 +134,14 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
 
   return (
     <>
-      <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
-        <Search className="h-3.5 w-3.5" />
-      </IconButton>
+      <div className="flex items-center gap-1">
+        <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
+          <Search className="h-3.5 w-3.5" />
+        </IconButton>
+        <IconButton onClick={handleRerun} title={isFailed ? (job?.error_message ?? "Last run failed — retry") : "Rerun analysis"} aria-label="Rerun analysis">
+          <RefreshCw className={`h-3.5 w-3.5 ${isFailed ? "text-rose-500" : ""}`} />
+        </IconButton>
+      </div>
 
       {modalOpen && (
         <AnalysisCompareModal
@@ -157,8 +185,10 @@ export function UnifiedExpandableTable({
   selectedRelevancies,
   setSelectedRelevancies,
   analysisResultsMap,
+  analysisJobsMap,
   runningKeys,
   onRunOne,
+  onRerunOne,
   eligibleItemKeys,
   modelNames,
 }) {
@@ -374,10 +404,12 @@ export function UnifiedExpandableTable({
                         <AnalysisCell
                           item={item}
                           shortKey={shortKey}
+                          job={analysisJobsMap?.[shortKey]}
                           modelNames={modelNames ?? []}
                           analysisResultsMap={analysisResultsMap}
                           runningKeys={runningKeys}
                           onRunOne={onRunOne}
+                          onRerunOne={onRerunOne}
                         />
                       ) : (
                         <span className="text-slate-400">-</span>

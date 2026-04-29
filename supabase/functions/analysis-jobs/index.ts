@@ -22,8 +22,6 @@ const braintrustModels = [
   { name: Deno.env.get("BRAINTRUST_MODEL3_NAME") ?? "Model 3", slug: Deno.env.get("BRAINTRUST_PROMPT_SLUG_3") ?? "" },
 ].filter((model) => model.slug);
 
-const functionIdCache = new Map<string, string>();
-
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -35,11 +33,6 @@ function json(body: unknown, status = 200) {
 }
 
 async function resolveFunctionId(slug: string) {
-  const cached = functionIdCache.get(slug);
-  if (cached) {
-    return cached;
-  }
-
   const params = new URLSearchParams({
     project_id: braintrustProjectId,
     slug,
@@ -62,7 +55,6 @@ async function resolveFunctionId(slug: string) {
     throw new Error(`Braintrust: no function found for project_id=${braintrustProjectId} slug=${slug}`);
   }
 
-  functionIdCache.set(slug, fn.id);
   return fn.id;
 }
 
@@ -74,8 +66,11 @@ async function invokeModel(slug: string, exportItem: Record<string, unknown>) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${braintrustApiKey}`,
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
     },
     body: JSON.stringify({ input: exportItem }),
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -284,10 +279,41 @@ Deno.serve(async (req) => {
   const beforeRecordId = String(body.beforeRecordId ?? "");
   const afterRecordId = String(body.afterRecordId ?? "");
   const triggerMode = body.triggerMode === "bulk" ? "bulk" : "single";
+  const forceRerun = body.forceRerun === true;
   const jobs = Array.isArray(body.jobs) ? body.jobs : [];
 
   if (!beforeRecordId || !afterRecordId || jobs.length === 0) {
     return json({ error: "beforeRecordId, afterRecordId, and jobs are required." }, 400);
+  }
+
+  if (forceRerun) {
+    const itemIds = jobs.map((j: Record<string, unknown>) => String(j.itemId ?? ""));
+    const itemTypes = jobs.map((j: Record<string, unknown>) => String(j.itemType ?? ""));
+    const uniqueTypes = [...new Set(itemTypes)];
+
+    const { error: clearResultsError } = await serviceClient
+      .from("analysis_results")
+      .delete()
+      .eq("before_record_id", beforeRecordId)
+      .eq("after_record_id", afterRecordId)
+      .in("item_id", itemIds)
+      .in("item_type", uniqueTypes);
+
+    if (clearResultsError) {
+      return json({ error: `Failed to clear old results: ${clearResultsError.message}` }, 500);
+    }
+
+    const { error: clearJobsError } = await serviceClient
+      .from("analysis_jobs")
+      .delete()
+      .eq("before_record_id", beforeRecordId)
+      .eq("after_record_id", afterRecordId)
+      .in("item_id", itemIds)
+      .in("item_type", uniqueTypes);
+
+    if (clearJobsError) {
+      return json({ error: `Failed to clear old jobs: ${clearJobsError.message}` }, 500);
+    }
   }
 
   let batchId: string | null = null;
