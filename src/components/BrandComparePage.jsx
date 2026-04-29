@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Play, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Play, Loader2, Info } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
@@ -8,7 +8,7 @@ import {
   getTotalVisibleChangeTypeCounts,
   countVisibleStatuses,
 } from "../utils/filterUtils";
-import { Button } from "./ui/Button";
+import { Button, IconButton } from "./ui/Button";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { KpiTile } from "./ui/KpiTile";
 import { StatusPill } from "./ui/StatusPill";
@@ -53,8 +53,16 @@ function mapAnalysisJobs(rows) {
   return map;
 }
 
+function getSharedJobTimestamp(job) {
+  return job?.started_at ?? job?.created_at ?? job?.updated_at ?? null;
+}
+
 function isJobRunning(status) {
   return status === "pending" || status === "processing";
+}
+
+function isBulkJob(job) {
+  return job?.trigger_mode === "bulk";
 }
 
 function hasAllModelResults(modelResults) {
@@ -63,6 +71,15 @@ function hasAllModelResults(modelResults) {
   }
 
   return BRAINTRUST_MODELS.every((model) => modelResults[model.name]);
+}
+
+function canQueueAnalysis(shortKey, analysisResultsMap, analysisJobsMap) {
+  const job = analysisJobsMap[shortKey];
+  if (isJobRunning(job?.status)) {
+    return false;
+  }
+
+  return !hasAllModelResults(analysisResultsMap[shortKey]);
 }
 
 function BrandComparePage({ group, onBack }) {
@@ -79,6 +96,7 @@ function BrandComparePage({ group, onBack }) {
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [bulkAnalysisStartedAt, setBulkAnalysisStartedAt] = useState(null);
   const [bulkAnalysisItemKeys, setBulkAnalysisItemKeys] = useState([]);
+  const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -127,7 +145,40 @@ function BrandComparePage({ group, onBack }) {
     setBulkAnalysisModalOpen(false);
     setBulkAnalysisStartedAt(null);
     setBulkAnalysisItemKeys([]);
+    setHadActiveBulkJobs(false);
   }, [group.key]);
+
+  useEffect(() => {
+    const runningJobEntries = Object.entries(analysisJobsMap)
+      .filter(([, job]) => isJobRunning(job?.status) && isBulkJob(job));
+
+    if (runningJobEntries.length > 0) {
+      setBulkAnalysisModalOpen(true);
+      setHadActiveBulkJobs(true);
+
+      const runningKeys = runningJobEntries.map(([shortKey]) => shortKey);
+      const earliestTimestamp = runningJobEntries
+        .map(([, job]) => getSharedJobTimestamp(job))
+        .filter(Boolean)
+        .map((value) => new Date(value).getTime())
+        .filter((value) => !Number.isNaN(value))
+        .sort((a, b) => a - b)[0];
+
+      setBulkAnalysisItemKeys((prev) => {
+        if (prev.length > 0) {
+          return prev;
+        }
+        return runningKeys;
+      });
+
+      if (earliestTimestamp) {
+        setBulkAnalysisStartedAt((prev) => prev ?? earliestTimestamp);
+      }
+    } else if (hadActiveBulkJobs && !isRunningAll) {
+      setBulkAnalysisModalOpen(false);
+      setHadActiveBulkJobs(false);
+    }
+  }, [analysisJobsMap, bulkAnalysisItemKeys.length, bulkAnalysisStartedAt, hadActiveBulkJobs, isRunningAll]);
 
   const beforeRecord = records.find((record) => String(record.id) === beforeId);
   const afterRecord = records.find((record) => String(record.id) === afterId);
@@ -159,6 +210,11 @@ function BrandComparePage({ group, onBack }) {
   const eligibleItemKeys = useMemo(
     () => new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type))),
     [eligibleItems],
+  );
+
+  const queueableItems = useMemo(
+    () => eligibleItems.filter((item) => canQueueAnalysis(makeShortKey(item.id, item.type), analysisResultsMap, analysisJobsMap)),
+    [eligibleItems, analysisResultsMap, analysisJobsMap],
   );
 
   useEffect(() => {
@@ -224,14 +280,15 @@ function BrandComparePage({ group, onBack }) {
     };
   }, [analysisJobsMap, beforeId, afterId]);
 
-  async function runAnalysisForItems(items) {
+  async function runAnalysisForItems(items, triggerMode = "single") {
     if (!beforeId || !afterId || items.length === 0) {
       return;
     }
 
-    await enqueueAnalysisJobs({
+    const response = await enqueueAnalysisJobs({
       beforeRecordId: beforeId,
       afterRecordId: afterId,
+      triggerMode,
       jobs: items.map((item) => ({
         itemId: String(item.id),
         itemType: String(item.type),
@@ -239,38 +296,42 @@ function BrandComparePage({ group, onBack }) {
       })),
     });
 
-    setAnalysisJobsMap((prev) => {
-      const next = { ...prev };
+    const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
 
-      items.forEach((item) => {
-        next[makeShortKey(item.id, item.type)] = {
-          ...next[makeShortKey(item.id, item.type)],
-          item_id: String(item.id),
-          item_type: String(item.type),
-          before_record_id: String(beforeId),
-          after_record_id: String(afterId),
-          status: "pending",
-          updated_at: new Date().toISOString(),
-        };
-      });
+    setAnalysisJobsMap((prev) => ({
+      ...prev,
+      ...mapAnalysisJobs(queuedJobs),
+    }));
 
-      return next;
-    });
+    const earliestTimestamp = queuedJobs
+      .map((job) => getSharedJobTimestamp(job))
+      .filter(Boolean)
+      .map((value) => new Date(value).getTime())
+      .filter((value) => !Number.isNaN(value))
+      .sort((a, b) => a - b)[0];
+
+    if (queuedJobs.length > 0 && triggerMode === "bulk") {
+      setBulkAnalysisItemKeys(items.map((item) => makeShortKey(item.id, item.type)));
+    }
+
+    if (earliestTimestamp && triggerMode === "bulk") {
+      setBulkAnalysisStartedAt(earliestTimestamp);
+    }
   }
 
   async function runAnalysisForItem(item) {
     try {
-      await runAnalysisForItems([item]);
+      await runAnalysisForItems([item], "single");
     } catch (err) {
       console.error("Failed to enqueue analysis for item", item.id, err);
     }
   }
 
   async function handleRunAll() {
-    if (!comparison || eligibleItems.length === 0) return;
+    if (!comparison || queueableItems.length === 0) return;
     setIsRunningAll(true);
     try {
-      await runAnalysisForItems(eligibleItems);
+      await runAnalysisForItems(queueableItems, "bulk");
     } catch (err) {
       console.error("Failed to enqueue analysis jobs:", err);
     } finally {
@@ -360,8 +421,6 @@ function BrandComparePage({ group, onBack }) {
     [analysisJobsMap, eligibleItemKeys],
   );
 
-  const pendingCount = eligibleItems.length - Object.keys(analysisResultsMap).filter((key) => eligibleItemKeys.has(key)).length;
-
   const bulkAnalysisStats = useMemo(() => {
     if (bulkAnalysisItemKeys.length === 0) {
       return {
@@ -399,6 +458,9 @@ function BrandComparePage({ group, onBack }) {
     });
   }, [analysisJobsMap, analysisResultsMap, bulkAnalysisItemKeys]);
 
+  const hasActiveAnalysisJobs = bulkAnalysisStats.queuedCount + bulkAnalysisStats.processingCount > 0 || isRunningAll;
+  const hasBulkAnalysisSummary = bulkAnalysisStats.totalCount > 0;
+
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -422,7 +484,7 @@ function BrandComparePage({ group, onBack }) {
                 variant="tonal"
                 tone="ai"
                 onClick={() => setRunAllConfirmOpen(true)}
-                disabled={!comparison || isRunningAll || eligibleItems.length === 0}
+                disabled={!comparison || isRunningAll || queueableItems.length === 0}
               >
                 {isRunningAll ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -431,19 +493,27 @@ function BrandComparePage({ group, onBack }) {
                 )}
                 {isRunningAll
                   ? "Queueing Analysis..."
-                  : `Run Analysis (${eligibleItems.length} items${pendingCount > 0 ? `, ${pendingCount} pending` : ""}${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
+                  : `Run Analysis (${queueableItems.length} items${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
               </Button>
+              {hasBulkAnalysisSummary ? (
+                <IconButton
+                  tone="neutral"
+                  title="View bulk analysis status"
+                  aria-label="View bulk analysis status"
+                  onClick={() => setBulkAnalysisModalOpen(true)}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </IconButton>
+              ) : null}
               <ConfirmDialog
                 open={runAllConfirmOpen}
                 title="Run analysis on all items?"
-                description={`This will queue ${eligibleItems.length} item${eligibleItems.length !== 1 ? "s" : ""} for server-side analysis. The jobs keep running even if you close the browser after they are queued.`}
+                description={`This will queue ${queueableItems.length} item${queueableItems.length !== 1 ? "s" : ""} for server-side analysis, skipping rows that already have completed analysis. The jobs keep running even if you close the browser after they are queued.`}
                 confirmLabel="Run Analysis"
                 confirmTone="ai"
                 onCancel={() => setRunAllConfirmOpen(false)}
                 onConfirm={() => {
                   setRunAllConfirmOpen(false);
-                  setBulkAnalysisStartedAt(Date.now());
-                  setBulkAnalysisItemKeys(eligibleItems.map((item) => makeShortKey(item.id, item.type)));
                   setBulkAnalysisModalOpen(true);
                   handleRunAll();
                 }}
@@ -543,6 +613,7 @@ function BrandComparePage({ group, onBack }) {
         failedCount={bulkAnalysisStats.failedCount}
         startedAt={bulkAnalysisStartedAt}
         isQueueing={isRunningAll}
+        dismissible={!hasActiveAnalysisJobs}
       />
     </section>
   );

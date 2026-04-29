@@ -221,6 +221,7 @@ Deno.serve(async (req) => {
 
   const beforeRecordId = String(body.beforeRecordId ?? "");
   const afterRecordId = String(body.afterRecordId ?? "");
+  const triggerMode = body.triggerMode === "bulk" ? "bulk" : "single";
   const jobs = Array.isArray(body.jobs) ? body.jobs : [];
 
   if (!beforeRecordId || !afterRecordId || jobs.length === 0) {
@@ -232,6 +233,7 @@ Deno.serve(async (req) => {
     after_record_id: afterRecordId,
     item_id: String(job.itemId ?? ""),
     item_type: String(job.itemType ?? ""),
+    trigger_mode: triggerMode,
     export_item: job.exportItem ?? {},
     status: "pending",
     error_message: null,
@@ -249,7 +251,7 @@ Deno.serve(async (req) => {
     .upsert(rows, {
       onConflict: "before_record_id,after_record_id,item_id,item_type",
     })
-    .select("id, before_record_id, after_record_id, item_id, item_type, export_item");
+    .select("id, before_record_id, after_record_id, item_id, item_type, trigger_mode, status, error_message, started_at, completed_at, created_at, updated_at, export_item");
 
   if (queueError) {
     return json({ error: queueError.message }, 500);
@@ -261,5 +263,6 @@ Deno.serve(async (req) => {
 
   return json({
     queued: queuedRows?.length ?? 0,
+    jobs: queuedRows ?? [],
   }, 202);
 });
