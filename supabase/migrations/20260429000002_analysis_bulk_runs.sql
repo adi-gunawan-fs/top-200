@@ -32,7 +32,15 @@ execute procedure public.set_updated_at();
 
 alter table public.analysis_bulk_runs enable row level security;
 
-create policy "Authenticated users can read analysis bulk runs"
-  on public.analysis_bulk_runs for select
-  to authenticated
-  using (true);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'analysis_bulk_runs'
+      and policyname = 'Authenticated users can read analysis bulk runs'
+  ) then
+    create policy "Authenticated users can read analysis bulk runs"
+      on public.analysis_bulk_runs for select
+      to authenticated
+      using (true);
+  end if;
+end $$;

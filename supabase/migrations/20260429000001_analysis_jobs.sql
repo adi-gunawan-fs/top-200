@@ -49,12 +49,28 @@ execute procedure public.set_updated_at();
 alter table public.analysis_results enable row level security;
 alter table public.analysis_jobs enable row level security;
 
-create policy "Authenticated users can read analysis results"
-  on public.analysis_results for select
-  to authenticated
-  using (true);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'analysis_results'
+      and policyname = 'Authenticated users can read analysis results'
+  ) then
+    create policy "Authenticated users can read analysis results"
+      on public.analysis_results for select
+      to authenticated
+      using (true);
+  end if;
+end $$;
 
-create policy "Authenticated users can read analysis jobs"
-  on public.analysis_jobs for select
-  to authenticated
-  using (true);
+do $$ begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'analysis_jobs'
+      and policyname = 'Authenticated users can read analysis jobs'
+  ) then
+    create policy "Authenticated users can read analysis jobs"
+      on public.analysis_jobs for select
+      to authenticated
+      using (true);
+  end if;
+end $$;

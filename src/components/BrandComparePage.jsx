@@ -24,7 +24,7 @@ import {
 } from "./UnifiedExpandableTable";
 import { BRAINTRUST_MODELS } from "../lib/braintrust";
 import { fetchAnalysisResults, fetchBestAnalysisPair } from "../lib/analysisResults";
-import { enqueueAnalysisJobs, fetchAnalysisJobs } from "../lib/analysisJobs";
+import { enqueueAnalysisJobs, fetchAnalysisJobs, cancelBulkRun } from "../lib/analysisJobs";
 import { fetchAnalysisBulkRuns } from "../lib/analysisBulkRuns";
 
 function makeShortKey(itemId, itemType) {
@@ -61,6 +61,7 @@ function isJobRunning(status) {
 function isBulkRunActive(run) {
   return run?.status === "pending" || run?.status === "processing";
 }
+
 
 function hasAllModelResults(modelResults) {
   if (!modelResults) {
@@ -320,6 +321,22 @@ function BrandComparePage({ group, onBack }) {
     }
   }
 
+  async function handleCancelBulkRun(batchId) {
+    try {
+      await cancelBulkRun(batchId);
+      const [resultRows, jobRows, bulkRunRows] = await Promise.all([
+        fetchAnalysisResults(beforeId, afterId),
+        fetchAnalysisJobs(beforeId, afterId),
+        fetchAnalysisBulkRuns(beforeId, afterId),
+      ]);
+      setAnalysisResultsMap(mapAnalysisResults(resultRows));
+      setAnalysisJobsMap(mapAnalysisJobs(jobRows));
+      setBulkRuns(bulkRunRows);
+    } catch (err) {
+      console.error("Failed to cancel bulk run:", err);
+    }
+  }
+
   const visibleChangeTypeCounts = useMemo(() => {
     if (!comparison) return { Relevant: 0, "Not Relevant": 0 };
     const visibleItems = [...menuTitleRows, ...dishRows].filter((item) => selectedStatusSet.has(item.status));
@@ -549,6 +566,7 @@ function BrandComparePage({ group, onBack }) {
       <AnalysisProgressModal
         open={bulkAnalysisModalOpen}
         onClose={() => setBulkAnalysisModalOpen(false)}
+        onCancelRun={handleCancelBulkRun}
         brandName={group.brandName}
         runs={bulkRuns}
         dismissible={!hasActiveAnalysisJobs}

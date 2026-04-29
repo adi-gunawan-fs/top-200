@@ -14,6 +14,23 @@ export async function fetchAnalysisJobs(beforeRecordId, afterRecordId) {
   return data;
 }
 
+export async function cancelBulkRun(batchId) {
+  const { error: jobsError } = await supabase
+    .from(TABLE)
+    .update({ status: "cancelled", completed_at: new Date().toISOString() })
+    .eq("batch_id", batchId)
+    .eq("status", "pending");
+
+  if (jobsError) throw jobsError;
+
+  const { error: runError } = await supabase
+    .from("analysis_bulk_runs")
+    .update({ status: "cancelled", completed_at: new Date().toISOString() })
+    .eq("id", batchId);
+
+  if (runError) throw runError;
+}
+
 export async function enqueueAnalysisJobs({ beforeRecordId, afterRecordId, jobs, triggerMode = "single" }) {
   const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, {
     body: {
@@ -25,6 +42,11 @@ export async function enqueueAnalysisJobs({ beforeRecordId, afterRecordId, jobs,
     },
   });
 
-  if (error) throw error;
+  if (error) {
+    let detail = error.message;
+    try { detail = (await error.context?.json())?.error ?? detail; } catch {}
+    console.error("enqueueAnalysisJobs error detail:", detail);
+    throw new Error(detail);
+  }
   return data;
 }

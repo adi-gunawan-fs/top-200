@@ -139,6 +139,16 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
   try {
     const modelEntries = await runBraintrustAnalysisAllModels(exportItem);
 
+    const { data: currentJob } = await serviceClient
+      .from("analysis_jobs")
+      .select("status")
+      .eq("id", jobId)
+      .single();
+
+    if (currentJob?.status === "cancelled") {
+      return;
+    }
+
     const resultRows = modelEntries.map(([, slug, result]) => ({
       before_record_id: beforeRecordId,
       after_record_id: afterRecordId,
