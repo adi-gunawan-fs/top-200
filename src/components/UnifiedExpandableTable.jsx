@@ -147,6 +147,7 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
         <AnalysisCompareModal
           itemLabel={item.name || item.title || String(item.id)}
           itemId={item.id}
+          item={item}
           modelNames={modelNames}
           modelResults={modelResults}
           onClose={() => setModalOpen(false)}
