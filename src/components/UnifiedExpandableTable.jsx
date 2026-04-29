@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Play } from "lucide-react";
+import { Loader2, Sparkles, Search } from "lucide-react";
 import { StatusPill, rowStyles } from "./ui/StatusPill";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
+import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
 import { buildHierarchy, collectTitleIds } from "../utils/hierarchyUtils";
 import {
   filterHierarchyByStatus,
@@ -62,92 +63,11 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
   );
 }
 
-function AnalysisResultDisplay({ result }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const complexityColor = {
-    EASY: "text-emerald-700 bg-emerald-50 border-emerald-200",
-    MEDIUM: "text-amber-700 bg-amber-50 border-amber-200",
-    HARD: "text-rose-700 bg-rose-50 border-rose-200",
-  }[result.overall_complexity] ?? "text-slate-700 bg-slate-50 border-slate-200";
-
-  const changeStatusColor = {
-    NO_CHANGE: "text-slate-600",
-    MINOR_CHANGE: "text-amber-700",
-    SIGNIFICANT_CHANGE: "text-rose-700",
-  }[result.change_status] ?? "text-slate-600";
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${complexityColor}`}>
-          {result.overall_complexity}
-        </span>
-        <span className={`text-[10px] font-medium ${changeStatusColor}`}>
-          {result.change_status?.replace(/_/g, " ")}
-        </span>
-        <span className="text-[10px] text-slate-500">
-          avg {result.average_score?.toFixed(1)}
-        </span>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-[10px] text-blue-600 hover:underline focus:outline-none"
-        >
-          {expanded ? "hide" : "details"}
-        </button>
-      </div>
-
-      {expanded && (
-        <div className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 p-2 text-[10px]">
-          {result.parameter_scores && (
-            <div className="flex flex-col gap-0.5">
-              <p className="font-semibold text-slate-600 uppercase tracking-wide">Scores</p>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                {Object.entries(result.parameter_scores).map(([k, v]) => (
-                  <span key={k} className="flex justify-between">
-                    <span className="text-slate-500">{k.replace(/_/g, " ")}</span>
-                    <span className="font-medium text-slate-700">{v}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {result.critical_reasons?.length > 0 && (
-            <div className="flex flex-col gap-0.5 mt-1">
-              <p className="font-semibold text-slate-600 uppercase tracking-wide">Reasons</p>
-              <ul className="flex flex-col gap-0.5">
-                {result.critical_reasons.map((r, i) => (
-                  <li key={i} className="text-slate-600 break-words">· {r}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AnalysisCell({ item, analysisKey, analysisResultsMap, runningKeys, onRunOne }) {
-  const result = analysisResultsMap[analysisKey];
-  const isRunning = runningKeys.has(analysisKey);
-
-  if (result) {
-    return (
-      <div className="flex flex-col gap-1">
-        <AnalysisResultDisplay result={result} />
-        <button
-          type="button"
-          onClick={() => onRunOne(item)}
-          disabled={isRunning}
-          className="self-start text-[10px] text-slate-400 hover:text-blue-600 hover:underline focus:outline-none disabled:cursor-not-allowed"
-        >
-          re-run
-        </button>
-      </div>
-    );
-  }
+function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningKeys, onRunOne }) {
+  const modelResults = analysisResultsMap[shortKey] ?? {};
+  const isRunning = runningKeys.has(shortKey);
+  const hasAnyResult = modelNames.some((name) => modelResults[name] && !modelResults[name].error);
+  const [modalOpen, setModalOpen] = useState(false);
 
   if (isRunning) {
     return (
@@ -158,15 +78,50 @@ function AnalysisCell({ item, analysisKey, analysisResultsMap, runningKeys, onRu
     );
   }
 
+  if (!hasAnyResult) {
+    return (
+      <button
+        type="button"
+        onClick={() => onRunOne(item)}
+        className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100 focus:outline-none"
+      >
+        <Sparkles className="h-2.5 w-2.5" />
+        Run
+      </button>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={() => onRunOne(item)}
-      className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100 focus:outline-none"
-    >
-      <Play className="h-2.5 w-2.5" />
-      Run
-    </button>
+    <>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          title="Compare models"
+          className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-slate-500 hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700 focus:outline-none"
+        >
+          <Search className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onRunOne(item)}
+          title="Re-run analysis"
+          className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-300 bg-white text-slate-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 focus:outline-none"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {modalOpen && (
+        <AnalysisCompareModal
+          itemLabel={item.name || item.title || String(item.id)}
+          itemId={item.id}
+          modelNames={modelNames}
+          modelResults={modelResults}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -181,6 +136,7 @@ export function UnifiedExpandableTable({
   runningKeys,
   onRunOne,
   eligibleItemKeys,
+  modelNames,
 }) {
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const { roots, orphanDishes } = useMemo(
@@ -386,7 +342,8 @@ export function UnifiedExpandableTable({
                       {isEligible ? (
                         <AnalysisCell
                           item={item}
-                          analysisKey={shortKey}
+                          shortKey={shortKey}
+                          modelNames={modelNames ?? []}
                           analysisResultsMap={analysisResultsMap}
                           runningKeys={runningKeys}
                           onRunOne={onRunOne}

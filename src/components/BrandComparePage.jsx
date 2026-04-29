@@ -18,7 +18,7 @@ import {
   DEFAULT_SELECTED_STATUSES,
   DEFAULT_SELECTED_RELEVANCIES,
 } from "./UnifiedExpandableTable";
-import { runBraintrustAnalysis } from "../lib/braintrust";
+import { runBraintrustAnalysisAllModels, BRAINTRUST_MODELS } from "../lib/braintrust";
 import {
   fetchAnalysisResults,
   upsertAnalysisResult,
@@ -118,6 +118,7 @@ function BrandComparePage({ group, onBack }) {
   }, [eligibleItems]);
 
   // Load saved analysis results whenever the before/after selection changes
+  // analysisResultsMap shape: { shortKey: { modelName: result } }
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       setAnalysisResultsMap({});
@@ -129,7 +130,9 @@ function BrandComparePage({ group, onBack }) {
         const map = {};
         rows.forEach((row) => {
           const shortKey = makeShortKey(row.item_id, row.item_type);
-          map[shortKey] = row.result;
+          const modelName = BRAINTRUST_MODELS.find((m) => m.slug === row.model_slug)?.name ?? row.model_slug;
+          if (!map[shortKey]) map[shortKey] = {};
+          map[shortKey][modelName] = row.result;
         });
         setAnalysisResultsMap(map);
       })
@@ -143,15 +146,27 @@ function BrandComparePage({ group, onBack }) {
     setRunningKeys((prev) => new Set([...prev, shortKey]));
     try {
       const exportItem = toBeforeAfterExport(item);
-      const result = await runBraintrustAnalysis(exportItem);
-      await upsertAnalysisResult({
-        beforeRecordId: beforeId,
-        afterRecordId: afterId,
-        itemId: String(item.id),
-        itemType: String(item.type),
-        result,
-      });
-      setAnalysisResultsMap((prev) => ({ ...prev, [shortKey]: result }));
+      const resultsByModel = await runBraintrustAnalysisAllModels(exportItem);
+
+      await Promise.all(
+        BRAINTRUST_MODELS.map(({ name, slug }) => {
+          const result = resultsByModel[name];
+          if (!result) return null;
+          return upsertAnalysisResult({
+            beforeRecordId: beforeId,
+            afterRecordId: afterId,
+            itemId: String(item.id),
+            itemType: String(item.type),
+            modelSlug: slug,
+            result,
+          });
+        }).filter(Boolean),
+      );
+
+      setAnalysisResultsMap((prev) => ({
+        ...prev,
+        [shortKey]: { ...(prev[shortKey] ?? {}), ...resultsByModel },
+      }));
     } catch (err) {
       console.error("Analysis failed for item", item.id, err);
     } finally {
@@ -359,6 +374,7 @@ function BrandComparePage({ group, onBack }) {
             runningKeys={runningKeys}
             onRunOne={runAnalysisForItem}
             eligibleItemKeys={eligibleItemKeys}
+            modelNames={BRAINTRUST_MODELS.map((m) => m.name)}
           />
         </div>
       ) : null}

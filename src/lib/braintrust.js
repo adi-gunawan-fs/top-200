@@ -1,20 +1,25 @@
 const BRAINTRUST_API_KEY = import.meta.env.VITE_BRAINTRUST_API_KEY;
 const BRAINTRUST_PROJECT_ID = import.meta.env.VITE_BRAINTRUST_PROJECT_ID;
-const BRAINTRUST_PROMPT_SLUG = import.meta.env.VITE_BRAINTRUST_PROMPT_SLUG;
 
 if (!BRAINTRUST_API_KEY) {
   console.warn("Missing VITE_BRAINTRUST_API_KEY — analysis features will not work.");
 }
 
-// Cache the function_id so we only look it up once per session
-let cachedFunctionId = null;
+export const BRAINTRUST_MODELS = [
+  { name: import.meta.env.VITE_BRAINTRUST_MODEL1_NAME || "Model 1", slug: import.meta.env.VITE_BRAINTRUST_PROMPT_SLUG_1 },
+  { name: import.meta.env.VITE_BRAINTRUST_MODEL2_NAME || "Model 2", slug: import.meta.env.VITE_BRAINTRUST_PROMPT_SLUG_2 },
+  { name: import.meta.env.VITE_BRAINTRUST_MODEL3_NAME || "Model 3", slug: import.meta.env.VITE_BRAINTRUST_PROMPT_SLUG_3 },
+].filter((m) => m.slug);
 
-async function resolveFunctionId() {
-  if (cachedFunctionId) return cachedFunctionId;
+// Cache function IDs per slug so we only look each up once per session
+const functionIdCache = {};
+
+async function resolveFunctionId(slug) {
+  if (functionIdCache[slug]) return functionIdCache[slug];
 
   const params = new URLSearchParams({
     project_id: BRAINTRUST_PROJECT_ID,
-    slug: BRAINTRUST_PROMPT_SLUG,
+    slug,
   });
 
   const response = await fetch(`/api/braintrust/v1/function?${params}`, {
@@ -27,24 +32,17 @@ async function resolveFunctionId() {
   }
 
   const data = await response.json();
-  // GET /v1/function returns { objects: [...] }
   const fn = data?.objects?.[0];
   if (!fn?.id) {
-    throw new Error(`Braintrust: no function found for project_id=${BRAINTRUST_PROJECT_ID} slug=${BRAINTRUST_PROMPT_SLUG}`);
+    throw new Error(`Braintrust: no function found for project_id=${BRAINTRUST_PROJECT_ID} slug=${slug}`);
   }
 
-  cachedFunctionId = fn.id;
-  return cachedFunctionId;
+  functionIdCache[slug] = fn.id;
+  return functionIdCache[slug];
 }
 
-export async function runBraintrustAnalysis(exportItem) {
-  if (!BRAINTRUST_API_KEY || !BRAINTRUST_PROJECT_ID || !BRAINTRUST_PROMPT_SLUG) {
-    throw new Error(
-      "Missing Braintrust env vars (VITE_BRAINTRUST_API_KEY, VITE_BRAINTRUST_PROJECT_ID, VITE_BRAINTRUST_PROMPT_SLUG).",
-    );
-  }
-
-  const functionId = await resolveFunctionId();
+async function invokeModel(slug, exportItem) {
+  const functionId = await resolveFunctionId(slug);
 
   const response = await fetch(`/api/braintrust/v1/function/${functionId}/invoke`, {
     method: "POST",
@@ -61,11 +59,33 @@ export async function runBraintrustAnalysis(exportItem) {
   }
 
   const data = await response.json();
-
-  // Braintrust invoke returns { output: ... } — parse if it's a JSON string
   const raw = data?.output ?? data;
   if (typeof raw === "string") {
     return JSON.parse(raw);
   }
   return raw;
+}
+
+// Returns { modelName: result } for all configured models, run in parallel.
+// Individual model failures are caught and stored as { error: message }.
+export async function runBraintrustAnalysisAllModels(exportItem) {
+  if (!BRAINTRUST_API_KEY || !BRAINTRUST_PROJECT_ID) {
+    throw new Error("Missing Braintrust env vars (VITE_BRAINTRUST_API_KEY, VITE_BRAINTRUST_PROJECT_ID).");
+  }
+  if (BRAINTRUST_MODELS.length === 0) {
+    throw new Error("No Braintrust model slugs configured (VITE_BRAINTRUST_PROMPT_SLUG_1 / _2 / _3).");
+  }
+
+  const entries = await Promise.all(
+    BRAINTRUST_MODELS.map(async ({ name, slug }) => {
+      try {
+        const result = await invokeModel(slug, exportItem);
+        return [name, result];
+      } catch (err) {
+        return [name, { error: err.message }];
+      }
+    }),
+  );
+
+  return Object.fromEntries(entries);
 }
