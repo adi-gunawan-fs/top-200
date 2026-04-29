@@ -22,16 +22,22 @@ function UploadSelector({ session, activeUploadId, onUploadSelect, onFileReady }
     try {
       const data = await listUploads();
       setUploads(data);
+      return data;
     } catch (err) {
       setError(err.message ?? "Failed to load uploads.");
+      return [];
     } finally {
       setLoadingList(false);
     }
   }, []);
 
   useEffect(() => {
-    loadUploads();
-  }, [loadUploads]);
+    loadUploads().then((data) => {
+      if (data.length > 0 && !activeUploadId) {
+        onUploadSelect(data[0]);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;

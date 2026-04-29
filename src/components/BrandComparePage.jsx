@@ -465,6 +465,16 @@ function BrandComparePage({ group, onBack }) {
     [analysisJobsMap, eligibleItemKeys],
   );
 
+  const analysedCount = useMemo(
+    () => eligibleItems.filter((item) => {
+      const results = analysisResultsMap[makeShortKey(item.id, item.type)];
+      return results && Object.keys(results).length > 0;
+    }).length,
+    [eligibleItems, analysisResultsMap],
+  );
+
+  const allEligibleAnalysed = eligibleItems.length > 0 && analysedCount === eligibleItems.length;
+
   const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll || isRerunningAll;
   const hasBulkAnalysisSummary = bulkRuns.length > 0;
 
@@ -487,21 +497,37 @@ function BrandComparePage({ group, onBack }) {
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
               </Button>
-              <Button
-                variant="tonal"
-                tone="ai"
-                onClick={() => setRunAllConfirmOpen(true)}
-                disabled={!comparison || isRunningAll || queueableItems.length === 0}
-              >
-                {isRunningAll ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )}
-                {isRunningAll
-                  ? "Queueing Analysis..."
-                  : `Run Analysis (${queueableItems.length} items${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
-              </Button>
+              {allEligibleAnalysed ? (
+                <Button
+                  variant="tonal"
+                  tone="neutral"
+                  onClick={() => setRerunAllConfirmOpen(true)}
+                  disabled={!comparison || isRerunningAll || rerunableItems.length === 0}
+                >
+                  {isRerunningAll ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  {isRerunningAll ? "Queueing Rerun..." : `Rerun Analysis (${rerunableItems.length})`}
+                </Button>
+              ) : (
+                <Button
+                  variant="tonal"
+                  tone="ai"
+                  onClick={() => setRunAllConfirmOpen(true)}
+                  disabled={!comparison || isRunningAll || queueableItems.length === 0}
+                >
+                  {isRunningAll ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  {isRunningAll
+                    ? "Queueing Analysis..."
+                    : `Run Analysis (${analysedCount}/${eligibleItems.length} done${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
+                </Button>
+              )}
               {hasBulkAnalysisSummary ? (
                 <IconButton
                   tone="neutral"
@@ -515,7 +541,7 @@ function BrandComparePage({ group, onBack }) {
               <ConfirmDialog
                 open={runAllConfirmOpen}
                 title="Run analysis on all items?"
-                description={`This will queue ${queueableItems.length} item${queueableItems.length !== 1 ? "s" : ""} for server-side analysis, skipping rows that already have completed analysis. The jobs keep running even if you close the browser after they are queued.`}
+                description={`This will queue ${queueableItems.length} item${queueableItems.length !== 1 ? "s" : ""} for server-side analysis. The jobs keep running even if you close the browser after they are queued.`}
                 confirmLabel="Run Analysis"
                 confirmTone="ai"
                 onCancel={() => setRunAllConfirmOpen(false)}
@@ -525,25 +551,10 @@ function BrandComparePage({ group, onBack }) {
                   handleRunAll();
                 }}
               />
-              <Button
-                variant="tonal"
-                tone="neutral"
-                onClick={() => setRerunAllConfirmOpen(true)}
-                disabled={!comparison || isRerunningAll || rerunableItems.length === 0}
-              >
-                {isRerunningAll ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                {isRerunningAll
-                  ? "Queueing Rerun..."
-                  : `Rerun All (${rerunableItems.length})`}
-              </Button>
               <ConfirmDialog
                 open={rerunAllConfirmOpen}
                 title="Rerun analysis on all items?"
-                description={`This will rerun analysis for all ${rerunableItems.length} eligible item${rerunableItems.length !== 1 ? "s" : ""}, replacing any existing results. The jobs keep running even if you close the browser after they are queued.`}
+                description={`This will delete existing results and rerun analysis for all ${rerunableItems.length} eligible item${rerunableItems.length !== 1 ? "s" : ""}. The jobs keep running even if you close the browser after they are queued.`}
                 confirmLabel="Rerun Analysis"
                 confirmTone="neutral"
                 onCancel={() => setRerunAllConfirmOpen(false)}

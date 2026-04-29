@@ -1,18 +1,12 @@
 import { Badge } from "./Badge";
 import { Modal } from "./Modal";
-import { formatAnalysisChangeStatus, formatAnalysisComplexity } from "../../utils/analysisReview";
+import { formatAnalysisChangeStatus, calcWeightedScore, calcComplexity, PARAMETER_WEIGHTS } from "../../utils/analysisReview";
 
-const COMPLEXITY_TONE = {
-  EASY: "success",
-  MEDIUM: "warning",
-  HARD: "danger",
-};
-
-const CHANGE_STATUS_COLOR = {
-  NO_CHANGE: "text-slate-600",
-  MINOR_CHANGE: "text-amber-700",
-  SIGNIFICANT_CHANGE: "text-rose-700",
-  MAJOR_CHANGE: "text-rose-700",
+const CHANGE_STATUS_TONE = {
+  NO_CHANGE: "neutral",
+  MINOR_CHANGE: "warning",
+  SIGNIFICANT_CHANGE: "danger",
+  MAJOR_CHANGE: "danger",
 };
 
 function ModelResultColumn({ name, result }) {
@@ -34,34 +28,55 @@ function ModelResultColumn({ name, result }) {
     );
   }
 
-  const normalizedComplexity = String(result.overall_complexity ?? "").trim().toUpperCase();
   const normalizedChangeStatus = String(result.change_status ?? "").trim().toUpperCase();
-  const complexityTone = COMPLEXITY_TONE[normalizedComplexity] ?? "neutral";
-  const changeStatusColor = CHANGE_STATUS_COLOR[normalizedChangeStatus] ?? "text-slate-600";
+  const changeStatusTone = CHANGE_STATUS_TONE[normalizedChangeStatus] ?? "neutral";
+  const weightedScore = calcWeightedScore(result.parameter_scores);
+  const complexity = calcComplexity(result.parameter_scores);
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs font-semibold text-slate-800">{name}</p>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone={complexityTone} uppercase={false}>{formatAnalysisComplexity(result.overall_complexity)}</Badge>
-        <span className={`text-[11px] font-medium ${changeStatusColor}`}>
+        {complexity && (
+          <Badge tone={complexity === "Hard" ? "danger" : "success"} uppercase={false}>
+            {complexity}
+          </Badge>
+        )}
+        <Badge tone={changeStatusTone} uppercase={false}>
           {formatAnalysisChangeStatus(result.change_status)}
-        </span>
-        <span className="text-[11px] text-slate-500">avg {result.average_score?.toFixed(1)}</span>
+        </Badge>
+        {weightedScore != null && (
+          <span className="text-[11px] text-slate-500">avg {weightedScore.toFixed(1)}</span>
+        )}
       </div>
 
       {result.parameter_scores && (
         <div className="flex flex-col gap-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Scores</p>
-          <div className="flex flex-col gap-0.5">
-            {Object.entries(result.parameter_scores).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-500">{k.replace(/_/g, " ")}</span>
-                <span className="font-semibold text-slate-700">{v}</span>
-              </div>
-            ))}
-          </div>
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                <th className="pb-1 text-left font-semibold">Parameter</th>
+                <th className="pb-1 text-right font-semibold">Score</th>
+                <th className="pb-1 text-right font-semibold">Weight</th>
+                <th className="pb-1 text-right font-semibold">Weighted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(result.parameter_scores).map(([k, v]) => {
+                const weight = PARAMETER_WEIGHTS[k];
+                const weighted = weight != null ? v * weight : null;
+                return (
+                  <tr key={k} className="border-t border-slate-100">
+                    <td className="py-0.5 text-slate-500">{k.replace(/_/g, " ")}</td>
+                    <td className="py-0.5 text-right font-semibold text-slate-700">{v}</td>
+                    <td className="py-0.5 text-right text-slate-400">{weight != null ? `${(weight * 100).toFixed(0)}%` : "-"}</td>
+                    <td className="py-0.5 text-right font-semibold text-slate-700">{weighted != null ? weighted.toFixed(2) : "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
