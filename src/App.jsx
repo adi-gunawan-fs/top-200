@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { LogOut } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, KeyRound, LogOut } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import UploadSelector from "./components/UploadSelector";
 import { Button } from "./components/ui/Button";
 import { EmptyState } from "./components/ui/EmptyState";
+import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
 import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
@@ -13,6 +14,9 @@ import { fetchCsvFile } from "./lib/csvUploads";
 
 function App() {
   const [session, setSession] = useState(undefined);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
   const [activeUpload, setActiveUpload] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -113,18 +117,52 @@ function App() {
               onFileReady={handleFileReady}
             />
             <span className="hidden h-4 w-px bg-slate-200 sm:block" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold uppercase text-slate-600">
-                {session.user.email?.[0] ?? "?"}
-              </div>
-              <span className="hidden max-w-[160px] truncate text-xs text-slate-500 lg:block">
-                {session.user.email}
-              </span>
-              <Button onClick={handleSignOut} aria-label="Sign out">
-                <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Sign out</span>
-              </Button>
+            <div className="relative" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((v) => !v)}
+                className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-100"
+              >
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold uppercase text-slate-600">
+                  {session.user.email?.[0] ?? "?"}
+                </div>
+                <span className="hidden max-w-[160px] truncate text-xs text-slate-600 lg:block">
+                  {session.user.email}
+                </span>
+                <ChevronDown className="h-3 w-3 text-slate-400" />
+              </button>
+
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-[calc(100%+4px)] z-30 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-md">
+                    <div className="border-b border-slate-100 px-3 py-2">
+                      <p className="truncate text-[10px] text-slate-400">{session.user.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true); }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      <KeyRound className="h-3.5 w-3.5 text-slate-400" />
+                      Change Password
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setUserMenuOpen(false); handleSignOut(); }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-rose-600 hover:bg-rose-50"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Sign out
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
+
+            {changePasswordOpen && (
+              <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />
+            )}
           </div>
         </div>
       </header>
