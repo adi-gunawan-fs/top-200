@@ -63,22 +63,6 @@ function isBulkRunActive(run) {
 }
 
 
-function hasAllModelResults(modelResults) {
-  if (!modelResults) {
-    return false;
-  }
-
-  return BRAINTRUST_MODELS.every((model) => modelResults[model.name]);
-}
-
-function canQueueAnalysis(shortKey, analysisResultsMap, analysisJobsMap) {
-  const job = analysisJobsMap[shortKey];
-  if (isJobRunning(job?.status)) {
-    return false;
-  }
-
-  return !hasAllModelResults(analysisResultsMap[shortKey]);
-}
 
 function BrandComparePage({ group, onBack }) {
   const records = group.records ?? [];
@@ -201,8 +185,11 @@ function BrandComparePage({ group, onBack }) {
   );
 
   const queueableItems = useMemo(
-    () => eligibleItems.filter((item) => canQueueAnalysis(makeShortKey(item.id, item.type), analysisResultsMap, analysisJobsMap)),
-    [eligibleItems, analysisResultsMap, analysisJobsMap],
+    () => eligibleItems.filter((item) => {
+      const job = analysisJobsMap[makeShortKey(item.id, item.type)];
+      return !isJobRunning(job?.status);
+    }),
+    [eligibleItems, analysisJobsMap],
   );
 
   useEffect(() => {
@@ -272,48 +259,35 @@ function BrandComparePage({ group, onBack }) {
     };
   }, [analysisJobsMap, beforeId, afterId]);
 
-  async function runAnalysisForItems(items, triggerMode = "single") {
-    if (!beforeId || !afterId || items.length === 0) {
-      return;
-    }
-
+  async function handleRunOne(item) {
     const response = await enqueueAnalysisJobs({
       beforeRecordId: beforeId,
       afterRecordId: afterId,
-      triggerMode,
-      jobs: items.map((item) => ({
-        itemId: String(item.id),
-        itemType: String(item.type),
-        exportItem: toBeforeAfterExport(item),
-      })),
+      triggerMode: "single",
+      jobs: [{ itemId: String(item.id), itemType: String(item.type), exportItem: toBeforeAfterExport(item) }],
     });
-
     const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
-
-    setAnalysisJobsMap((prev) => ({
-      ...prev,
-      ...mapAnalysisJobs(queuedJobs),
-    }));
-
-    if (triggerMode === "bulk") {
-      const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
-      setBulkRuns(bulkRunRows);
-    }
-  }
-
-  async function runAnalysisForItem(item) {
-    try {
-      await runAnalysisForItems([item], "single");
-    } catch (err) {
-      console.error("Failed to enqueue analysis for item", item.id, err);
-    }
+    setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs) }));
   }
 
   async function handleRunAll() {
     if (!comparison || queueableItems.length === 0) return;
     setIsRunningAll(true);
     try {
-      await runAnalysisForItems(queueableItems, "bulk");
+      const response = await enqueueAnalysisJobs({
+        beforeRecordId: beforeId,
+        afterRecordId: afterId,
+        triggerMode: "bulk",
+        jobs: queueableItems.map((item) => ({
+          itemId: String(item.id),
+          itemType: String(item.type),
+          exportItem: toBeforeAfterExport(item),
+        })),
+      });
+      const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
+      setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs) }));
+      const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
+      setBulkRuns(bulkRunRows);
     } catch (err) {
       console.error("Failed to enqueue analysis jobs:", err);
     } finally {
@@ -556,7 +530,7 @@ function BrandComparePage({ group, onBack }) {
             setSelectedRelevancies={setSelectedRelevancies}
             analysisResultsMap={analysisResultsMap}
             runningKeys={runningKeys}
-            onRunOne={runAnalysisForItem}
+            onRunOne={handleRunOne}
             eligibleItemKeys={eligibleItemKeys}
             modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
           />

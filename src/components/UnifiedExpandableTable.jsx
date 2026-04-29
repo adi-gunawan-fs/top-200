@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles, Search } from "lucide-react";
+import { Loader2, Search, Sparkles } from "lucide-react";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
 import { Button, IconButton } from "./ui/Button";
 import { Card } from "./ui/Card";
-import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
@@ -72,20 +71,38 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
   const isRunning = runningKeys.has(shortKey);
   const hasAnyResult = modelNames.some((name) => modelResults[name] && !modelResults[name].error);
   const [modalOpen, setModalOpen] = useState(false);
-  const [rerunConfirm, setRerunConfirm] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  async function handleRun() {
+    setIsSending(true);
+    try {
+      await onRunOne(item);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  if (isSending) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Sending…
+      </span>
+    );
+  }
 
   if (isRunning) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Running…
+        Analysing…
       </span>
     );
   }
 
   if (!hasAnyResult) {
     return (
-      <Button variant="tonal" tone="info" size="xs" onClick={() => onRunOne(item)}>
+      <Button variant="tonal" tone="info" size="xs" onClick={handleRun}>
         <Sparkles className="h-2.5 w-2.5" />
         Run
       </Button>
@@ -94,24 +111,9 @@ function AnalysisCell({ item, shortKey, modelNames, analysisResultsMap, runningK
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
-        <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
-          <Search className="h-3.5 w-3.5" />
-        </IconButton>
-        <IconButton onClick={() => setRerunConfirm(true)} title="Re-run analysis" aria-label="Re-run analysis">
-          <Sparkles className="h-3.5 w-3.5" />
-        </IconButton>
-      </div>
-
-      <ConfirmDialog
-        open={rerunConfirm}
-        title="Re-run analysis for this item?"
-        description="Existing results for this item will be overwritten."
-        confirmLabel="Re-run"
-        confirmTone="info"
-        onCancel={() => setRerunConfirm(false)}
-        onConfirm={() => { setRerunConfirm(false); onRunOne(item); }}
-      />
+      <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
+        <Search className="h-3.5 w-3.5" />
+      </IconButton>
 
       {modalOpen && (
         <AnalysisCompareModal
