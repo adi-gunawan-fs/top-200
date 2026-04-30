@@ -223,36 +223,50 @@ function BrandComparePage({ group, onBack }) {
     };
   }, [beforeId, afterId]);
 
+  const hasRunningJobs = useMemo(
+    () => Object.values(analysisJobsMap).some((job) => isJobRunning(job?.status)),
+    [analysisJobsMap],
+  );
+  const hasActiveBulkRun = useMemo(
+    () => bulkRuns.some((run) => isBulkRunActive(run)),
+    [bulkRuns],
+  );
+  const shouldPoll = hasRunningJobs || hasActiveBulkRun || isRunningAll;
+
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       return undefined;
     }
-
-    const hasRunningJobs = Object.values(analysisJobsMap).some((job) => isJobRunning(job?.status));
-    if (!hasRunningJobs) {
+    if (!shouldPoll) {
       return undefined;
     }
 
-    const intervalId = window.setInterval(async () => {
+    let cancelled = false;
+
+    async function refresh() {
       try {
         const [resultRows, jobRows, bulkRunRows] = await Promise.all([
           fetchAnalysisResults(beforeId, afterId),
           fetchAnalysisJobs(beforeId, afterId),
           fetchAnalysisBulkRuns(beforeId, afterId),
         ]);
-
+        if (cancelled) return;
         setAnalysisResultsMap(mapAnalysisResults(resultRows));
         setAnalysisJobsMap(mapAnalysisJobs(jobRows));
         setBulkRuns(bulkRunRows);
       } catch (err) {
         console.error("Failed to refresh analysis state:", err);
       }
-    }, 3000);
+    }
+
+    refresh();
+    const intervalId = window.setInterval(refresh, 2000);
 
     return () => {
+      cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [analysisJobsMap, beforeId, afterId]);
+  }, [shouldPoll, beforeId, afterId]);
 
   async function handleRunOne(item) {
     const response = await enqueueAnalysisJobs({
