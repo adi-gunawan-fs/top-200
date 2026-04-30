@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { Activity, CheckCircle2, Clock3, Loader2, Sparkles, AlertTriangle, XCircle, History, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle2, Loader2, AlertTriangle, XCircle } from "lucide-react";
 import { parseDateValue, formatDate } from "../../utils/formatDate";
-import { Modal } from "./Modal";
+import { Drawer } from "./Drawer";
 import { Button } from "./Button";
-import { Badge } from "./Badge";
-import { KpiTile } from "./KpiTile";
 
 function formatElapsed(ms) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -23,169 +21,159 @@ function isRunActive(run) {
   return run?.status === "pending" || run?.status === "processing";
 }
 
-function StatCard({ label, value, tone = "neutral" }) {
-  const className = tone === "info"
-    ? "border-blue-200 bg-blue-50"
-    : tone === "warning"
-      ? "border-amber-200 bg-amber-50"
-      : tone === "success"
-        ? "border-emerald-200 bg-emerald-50"
-        : tone === "danger"
-          ? "border-rose-200 bg-rose-50"
-          : "";
+function getRunVisuals(run) {
+  if (isRunActive(run)) {
+    return {
+      Icon: Loader2,
+      iconClass: "text-violet-600 animate-spin",
+      ringClass: "border-violet-200 bg-violet-50",
+      label: "Running",
+      labelClass: "text-violet-700",
+    };
+  }
+  if (run.status === "cancelled") {
+    return {
+      Icon: XCircle,
+      iconClass: "text-slate-500",
+      ringClass: "border-slate-200 bg-slate-50",
+      label: "Cancelled",
+      labelClass: "text-slate-600",
+    };
+  }
+  if ((run.failed_count ?? 0) > 0) {
+    return {
+      Icon: AlertTriangle,
+      iconClass: "text-amber-600",
+      ringClass: "border-amber-200 bg-amber-50",
+      label: "Completed with failures",
+      labelClass: "text-amber-700",
+    };
+  }
+  return {
+    Icon: CheckCircle2,
+    iconClass: "text-emerald-600",
+    ringClass: "border-emerald-200 bg-emerald-50",
+    label: "Completed",
+    labelClass: "text-emerald-700",
+  };
+}
 
+function getStatusSentence(run) {
+  const total = run.total_items ?? 0;
+  const completed = run.completed_count ?? 0;
+  const failed = run.failed_count ?? 0;
+
+  if (isRunActive(run)) {
+    return (
+      <>
+        Bulk analysis is <span className="font-semibold text-slate-900">processing</span>
+        {" "}
+        ({completed + failed} of {total} items finished).
+      </>
+    );
+  }
+  if (run.status === "cancelled") {
+    return (
+      <>
+        Bulk analysis was <span className="font-semibold text-slate-900">cancelled</span>
+        {" "}
+        ({completed} of {total} items finished).
+      </>
+    );
+  }
+  if (failed > 0) {
+    return (
+      <>
+        Bulk analysis <span className="font-semibold text-slate-900">completed with {failed} failure{failed !== 1 ? "s" : ""}</span>
+        {" "}
+        ({completed} of {total} items succeeded).
+      </>
+    );
+  }
   return (
-    <KpiTile label={label} className={className}>
-      <p className="text-base font-semibold text-slate-900">{value}</p>
-    </KpiTile>
+    <>
+      Bulk analysis <span className="font-semibold text-slate-900">completed successfully</span>
+      {" "}
+      ({completed} of {total} items finished).
+    </>
   );
 }
 
-function RunHistoryTable({ runs }) {
-  return (
-    <div className="mt-2 overflow-hidden rounded-md border border-slate-200">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50">
-            <th className="px-3 py-2 text-left font-medium text-slate-500">Run</th>
-            <th className="px-3 py-2 text-left font-medium text-slate-500">Started</th>
-            <th className="px-3 py-2 text-left font-medium text-slate-500">Duration</th>
-            <th className="px-3 py-2 text-left font-medium text-slate-500">Items</th>
-            <th className="px-3 py-2 text-left font-medium text-slate-500">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map((run, i) => {
-            const startedAtTs = parseDateValue(run.started_at);
-            const completedAtTs = parseDateValue(run.completed_at);
-            const duration = startedAtTs && completedAtTs ? formatElapsed(completedAtTs - startedAtTs) : "-";
-            const cancelled = run.status === "cancelled";
-            const hasFailed = (run.failed_count ?? 0) > 0;
-            return (
-              <tr key={run.id} className={i > 0 ? "border-t border-slate-100" : ""}>
-                <td className="px-3 py-2 text-slate-500">#{i + 1}</td>
-                <td className="px-3 py-2 text-slate-700">{formatDate(run.started_at)}</td>
-                <td className="px-3 py-2 tabular-nums text-slate-700">{duration}</td>
-                <td className="px-3 py-2 text-slate-700">{run.completed_count ?? 0} / {run.total_items ?? 0}</td>
-                <td className="px-3 py-2">
-                  <Badge tone={cancelled ? "neutral" : hasFailed ? "warning" : "success"} uppercase={false}>
-                    {cancelled ? <XCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                    {cancelled ? "Cancelled" : hasFailed ? "With failures" : "Completed"}
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function RunCard({ run, index, now, showLockNote, onCancel }) {
-  const active = isRunActive(run);
-  const cancelled = run?.status === "cancelled";
+function RunActiveDetail({ run, now, onCancel, showLockNote }) {
   const doneCount = (run.completed_count ?? 0) + (run.failed_count ?? 0);
   const totalCount = run.total_items ?? 0;
   const progressPercent = totalCount > 0 ? Math.min(100, Math.round((doneCount / totalCount) * 100)) : 0;
   const startedAtTs = parseDateValue(run.started_at);
-  const completedAtTs = parseDateValue(run.completed_at);
-  const elapsedLabel = active && startedAtTs ? formatElapsed(now - startedAtTs) : null;
-  const processedLabel = !active && startedAtTs && completedAtTs ? formatElapsed(completedAtTs - startedAtTs) : "-";
+  const elapsedLabel = startedAtTs ? formatElapsed(now - startedAtTs) : "-";
 
   return (
-    <div className={`rounded-md border ${index > 0 ? "mt-4" : ""} ${active ? "border-violet-200 bg-violet-50/30" : "border-slate-200 bg-white"}`}>
-      <div className="border-b border-slate-200 px-3 py-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Badge tone={active ? "ai" : cancelled ? "neutral" : run.failed_count > 0 ? "warning" : "success"} uppercase={false}>
-                {active ? <Sparkles className="h-3 w-3" /> : cancelled ? <XCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                {active ? "Running" : cancelled ? "Cancelled" : run.failed_count > 0 ? "Completed With Failures" : "Completed"}
-              </Badge>
-              <span className="text-[11px] text-slate-500">Run #{index + 1}</span>
-            </div>
-            <p className="mt-2 text-xs font-semibold text-slate-900">
-              {active ? "Bulk analysis is still processing." : cancelled ? "Bulk analysis was cancelled." : "Bulk analysis finished."}
-            </p>
-            <div className="mt-1 text-[11px] text-slate-500">
-              <p>Started: {formatDate(run.started_at)}</p>
-              {!active ? <p>Completed: {formatDate(run.completed_at)}</p> : null}
-            </div>
-          </div>
-
-          <KpiTile label={active ? "Elapsed" : "Processed"} className="min-w-[140px] shrink-0 text-right">
-            <div className="flex items-center justify-end gap-1 text-slate-500">
-              <Clock3 className="h-3.5 w-3.5" />
-              <span className="text-xs font-semibold tabular-nums text-slate-900">{active ? elapsedLabel ?? "-" : processedLabel}</span>
-            </div>
-          </KpiTile>
-        </div>
+    <div className="mt-2 rounded-md border border-violet-200 bg-white p-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-slate-600">{doneCount} of {totalCount} items finished</span>
+        <span className="font-semibold tabular-nums text-slate-900">{progressPercent}%</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded bg-slate-200">
+        <div className="h-full bg-violet-500 transition-[width] duration-700" style={{ width: `${progressPercent}%` }} />
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Elapsed <span className="font-semibold tabular-nums text-slate-700">{elapsedLabel}</span></span>
+        <span>{(run.processing_count ?? 0) + (run.queued_count ?? 0)} still active</span>
       </div>
 
-      <div className="px-3 py-3">
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-slate-700">
-              {active ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-600" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              )}
-              <span>
-                {doneCount} of {totalCount} items finished
-              </span>
-            </div>
-            <span className="text-xs font-semibold tabular-nums text-slate-900">{progressPercent}%</span>
-          </div>
-
-          <div className="mt-2 h-2 overflow-hidden rounded bg-slate-200">
-            <div
-              className={`h-full transition-[width] duration-700 ${active ? "bg-violet-500" : "bg-emerald-500"}`}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-
-          <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-            <span className="inline-flex items-center gap-1.5">
-              <Activity className="h-3.5 w-3.5" />
-              Queue state
-            </span>
-            <span>{active ? `${(run.processing_count ?? 0) + (run.queued_count ?? 0)} still active` : "No active jobs"}</span>
-          </div>
+      {onCancel ? (
+        <div className="mt-3 flex justify-end">
+          <Button variant="outline" tone="danger" size="sm" onClick={onCancel}>
+            <XCircle className="h-3.5 w-3.5" />
+            Cancel All
+          </Button>
         </div>
+      ) : null}
 
-        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-          <StatCard label="Total" value={run.total_items ?? 0} tone="neutral" />
-          <StatCard label="Queued" value={run.queued_count ?? 0} tone="warning" />
-          <StatCard label="Processing" value={run.processing_count ?? 0} tone="info" />
-          <StatCard label="Completed" value={run.completed_count ?? 0} tone="success" />
-          <StatCard label="Failed" value={run.failed_count ?? 0} tone="danger" />
+      {showLockNote ? (
+        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-700">
+          This window will unlock automatically when the active bulk analysis jobs finish.
         </div>
-
-        {(run.failed_count ?? 0) > 0 ? (
-          <div className="mt-3 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <p>Some items failed in this run. Their row-level status remains available for review.</p>
-          </div>
-        ) : null}
-
-        {active && onCancel ? (
-          <div className="mt-3 flex justify-end">
-            <Button variant="outline" tone="danger" size="sm" onClick={onCancel}>
-              <XCircle className="h-3.5 w-3.5" />
-              Cancel All
-            </Button>
-          </div>
-        ) : null}
-
-        {active && showLockNote ? (
-          <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            This window will unlock automatically when the active bulk analysis jobs finish.
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </div>
+  );
+}
+
+function TimelineItem({ run, isLast, now, onCancel, showLockNote }) {
+  const { Icon, iconClass, ringClass, label, labelClass } = getRunVisuals(run);
+  const active = isRunActive(run);
+  const startedAtTs = parseDateValue(run.started_at);
+  const completedAtTs = parseDateValue(run.completed_at);
+  const durationLabel = startedAtTs && completedAtTs ? formatElapsed(completedAtTs - startedAtTs) : null;
+
+  return (
+    <li className="relative flex gap-3 pb-5 last:pb-0">
+      {!isLast ? (
+        <span className="absolute left-[15px] top-8 -bottom-1 w-px bg-slate-200" aria-hidden="true" />
+      ) : null}
+
+      <span className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${ringClass}`}>
+        <Icon className={`h-4 w-4 ${iconClass}`} />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <h3 className={`text-sm font-semibold ${labelClass}`}>{label}</h3>
+          <span className="text-[11px] text-slate-400">·</span>
+          <span className="text-[11px] tabular-nums text-slate-500">{formatDate(run.started_at)}</span>
+          {durationLabel ? (
+            <>
+              <span className="text-[11px] text-slate-400">·</span>
+              <span className="text-[11px] tabular-nums text-slate-500">{durationLabel}</span>
+            </>
+          ) : null}
+        </div>
+        <p className="mt-0.5 text-xs text-slate-600">{getStatusSentence(run)}</p>
+
+        {active ? (
+          <RunActiveDetail run={run} now={now} onCancel={onCancel} showLockNote={showLockNote} />
+        ) : null}
+      </div>
+    </li>
   );
 }
 
@@ -198,7 +186,6 @@ export function AnalysisProgressModal({
   dismissible = true,
 }) {
   const [now, setNow] = useState(Date.now());
-  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     const hasActiveRun = runs.some((run) => isRunActive(run));
@@ -215,66 +202,40 @@ export function AnalysisProgressModal({
     };
   }, [open, runs]);
 
-  useEffect(() => {
-    if (!open) setShowHistory(false);
-  }, [open]);
-
   const activeRun = runs.find((run) => isRunActive(run)) ?? null;
-  const latestRun = activeRun ?? (runs.length > 0 ? runs[0] : null);
-  const pastRuns = runs.filter((run) => run !== latestRun && !isRunActive(run));
-  const title = activeRun ? "Bulk Analysis In Progress" : "Bulk Analysis History";
-  const subtitle = brandName ? `${brandName} | ${runs.length} run${runs.length !== 1 ? "s" : ""}` : undefined;
+  const title = activeRun ? "Analysis In Progress" : "Analysis History";
+  const subtitle = brandName ? brandName : undefined;
 
   return (
-    <Modal
+    <Drawer
       open={open}
       onClose={dismissible ? onClose : undefined}
       size="lg"
       title={title}
       subtitle={subtitle}
-      footer={dismissible ? (
-        <Button variant="outline" tone="neutral" onClick={onClose}>Close</Button>
-      ) : null}
       closeOnOverlayClick={dismissible}
       closeOnEscape={dismissible}
     >
       <div className="p-4">
         {runs.length === 0 ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-4 text-xs text-slate-500">
-            No bulk analysis runs recorded yet.
+            No analysis runs recorded yet.
           </div>
         ) : (
-          <>
-            {latestRun && (
-              <RunCard
-                key={latestRun.id}
-                run={latestRun}
-                index={0}
+          <ol className="flex flex-col">
+            {runs.map((run, index) => (
+              <TimelineItem
+                key={run.id}
+                run={run}
+                isLast={index === runs.length - 1}
                 now={now}
-                showLockNote={!dismissible && Boolean(activeRun)}
-                onCancel={activeRun && onCancelRun ? () => onCancelRun(activeRun.id) : undefined}
+                onCancel={activeRun && activeRun.id === run.id && onCancelRun ? () => onCancelRun(run.id) : undefined}
+                showLockNote={!dismissible && activeRun && activeRun.id === run.id}
               />
-            )}
-
-            {pastRuns.length > 0 && (
-              <div className="mt-3">
-                <button
-                  onClick={() => setShowHistory((v) => !v)}
-                  className="flex w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:bg-slate-100"
-                >
-                  <History className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="flex-1 text-left">
-                    {showHistory ? "Hide" : "Show"} history ({pastRuns.length} previous run{pastRuns.length !== 1 ? "s" : ""})
-                  </span>
-                  {showHistory ? <ChevronUp className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
-                </button>
-
-                {showHistory && <RunHistoryTable runs={pastRuns} />}
-              </div>
-            )}
-          </>
+            ))}
+          </ol>
         )}
       </div>
-    </Modal>
+    </Drawer>
   );
 }

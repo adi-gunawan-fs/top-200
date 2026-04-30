@@ -66,7 +66,7 @@ function ChangedFieldsCell({ item, selectedRelevancies }) {
   );
 }
 
-function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, runningKeys, onRunOne, onRerunOne }) {
+function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, runningKeys, onRunOne }) {
   const modelResults = analysisResultsMap[shortKey] ?? {};
   const isRunning = runningKeys.has(shortKey);
   const isFailed = job?.status === "failed";
@@ -78,15 +78,6 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
     setIsSending(true);
     try {
       await onRunOne(item);
-    } finally {
-      setIsSending(false);
-    }
-  }
-
-  async function handleRerun() {
-    setIsSending(true);
-    try {
-      await onRerunOne(item);
     } finally {
       setIsSending(false);
     }
@@ -112,14 +103,9 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
 
   if (isFailed && !hasAnyResult) {
     return (
-      <div className="flex items-center gap-1">
-        <span className="text-[10px] text-rose-500" title={job?.error_message ?? "Analysis failed"}>
-          Failed
-        </span>
-        <Button variant="tonal" tone="danger" size="xs" onClick={handleRerun} title={job?.error_message ?? "Retry analysis"} aria-label="Retry analysis">
-          <Sparkles className="h-2.5 w-2.5" />
-        </Button>
-      </div>
+      <span className="text-[10px] text-rose-500" title={job?.error_message ?? "Analysis failed"}>
+        Failed
+      </span>
     );
   }
 
@@ -134,14 +120,9 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
 
   return (
     <>
-      <div className="flex items-center gap-1">
-        <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
-          <Search className="h-3.5 w-3.5" />
-        </IconButton>
-        <Button variant="tonal" tone={isFailed ? "danger" : "info"} size="xs" onClick={handleRerun} title={isFailed ? (job?.error_message ?? "Last run failed — retry") : "Rerun analysis"} aria-label="Rerun analysis">
-          <Sparkles className="h-2.5 w-2.5" />
-        </Button>
-      </div>
+      <IconButton onClick={() => setModalOpen(true)} title="Compare models" aria-label="Compare models">
+        <Search className="h-3.5 w-3.5" />
+      </IconButton>
 
       {modalOpen && (
         <AnalysisCompareModal
@@ -196,7 +177,6 @@ export function UnifiedExpandableTable({
   analysisJobsMap,
   runningKeys,
   onRunOne,
-  onRerunOne,
   eligibleItemKeys,
   modelNames,
 }) {
@@ -417,7 +397,6 @@ export function UnifiedExpandableTable({
                           analysisResultsMap={analysisResultsMap}
                           runningKeys={runningKeys}
                           onRunOne={onRunOne}
-                          onRerunOne={onRerunOne}
                         />
                       ) : (
                         <span className="text-slate-400">-</span>

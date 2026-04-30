@@ -1,22 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Play, RefreshCw, Loader2, Info } from "lucide-react";
+import { ArrowLeft, Download, Play, Loader2, History } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
-import {
-  hasVisibleChangedFields,
-  getTotalVisibleChangeTypeCounts,
-  countVisibleStatuses,
-} from "../utils/filterUtils";
 import { Button, IconButton } from "./ui/Button";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { KpiTile } from "./ui/KpiTile";
-import { StatusPill } from "./ui/StatusPill";
-import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { RecordSelect } from "./ui/RecordSelect";
 import { RulesTooltip, ColorCodeTable } from "./ui/RulesTooltip";
-import { SummaryTriple } from "./ui/SummaryTriple";
 import { AnalysisProgressModal } from "./ui/AnalysisProgressModal";
+import { BrandReportCard } from "./BrandReportCard";
 import {
   UnifiedExpandableTable,
   DEFAULT_SELECTED_STATUSES,
@@ -75,9 +67,7 @@ function BrandComparePage({ group, onBack }) {
   const [analysisJobsMap, setAnalysisJobsMap] = useState({});
   const [bulkRuns, setBulkRuns] = useState([]);
   const [isRunningAll, setIsRunningAll] = useState(false);
-  const [isRerunningAll, setIsRerunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
-  const [rerunAllConfirmOpen, setRerunAllConfirmOpen] = useState(false);
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
 
@@ -188,18 +178,13 @@ function BrandComparePage({ group, onBack }) {
 
   const queueableItems = useMemo(
     () => eligibleItems.filter((item) => {
-      const job = analysisJobsMap[makeShortKey(item.id, item.type)];
-      return !isJobRunning(job?.status);
+      const shortKey = makeShortKey(item.id, item.type);
+      const job = analysisJobsMap[shortKey];
+      const results = analysisResultsMap[shortKey];
+      const hasResult = results && Object.keys(results).length > 0;
+      return !isJobRunning(job?.status) && !hasResult;
     }),
-    [eligibleItems, analysisJobsMap],
-  );
-
-  const rerunableItems = useMemo(
-    () => eligibleItems.filter((item) => {
-      const job = analysisJobsMap[makeShortKey(item.id, item.type)];
-      return !isJobRunning(job?.status);
-    }),
-    [eligibleItems, analysisJobsMap],
+    [eligibleItems, analysisJobsMap, analysisResultsMap],
   );
 
   useEffect(() => {
@@ -305,68 +290,6 @@ function BrandComparePage({ group, onBack }) {
     }
   }
 
-  async function handleRerunOne(item) {
-    const shortKey = makeShortKey(item.id, item.type);
-    setAnalysisResultsMap((prev) => {
-      const next = { ...prev };
-      delete next[shortKey];
-      return next;
-    });
-    setAnalysisJobsMap((prev) => {
-      const next = { ...prev };
-      delete next[shortKey];
-      return next;
-    });
-
-    const response = await enqueueAnalysisJobs({
-      beforeRecordId: beforeId,
-      afterRecordId: afterId,
-      triggerMode: "single",
-      forceRerun: true,
-      jobs: [{ itemId: String(item.id), itemType: String(item.type), exportItem: toBeforeAfterExport(item) }],
-    });
-    const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
-    setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
-  }
-
-  async function handleRerunAll() {
-    if (!comparison || rerunableItems.length === 0) return;
-    setIsRerunningAll(true);
-    try {
-      const rerunKeys = new Set(rerunableItems.map((item) => makeShortKey(item.id, item.type)));
-      setAnalysisResultsMap((prev) => {
-        const next = { ...prev };
-        rerunKeys.forEach((key) => delete next[key]);
-        return next;
-      });
-      setAnalysisJobsMap((prev) => {
-        const next = { ...prev };
-        rerunKeys.forEach((key) => delete next[key]);
-        return next;
-      });
-
-      const response = await enqueueAnalysisJobs({
-        beforeRecordId: beforeId,
-        afterRecordId: afterId,
-        triggerMode: "bulk",
-        forceRerun: true,
-        jobs: rerunableItems.map((item) => ({
-          itemId: String(item.id),
-          itemType: String(item.type),
-          exportItem: toBeforeAfterExport(item),
-        })),
-      });
-      const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
-      setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
-      const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
-      setBulkRuns(bulkRunRows);
-    } catch (err) {
-      console.error("Failed to enqueue rerun analysis jobs:", err);
-    } finally {
-      setIsRerunningAll(false);
-    }
-  }
-
   async function handleCancelBulkRun(batchId) {
     try {
       await cancelBulkRun(batchId);
@@ -382,28 +305,6 @@ function BrandComparePage({ group, onBack }) {
       console.error("Failed to cancel bulk run:", err);
     }
   }
-
-  const visibleChangeTypeCounts = useMemo(() => {
-    if (!comparison) return { Relevant: 0, "Not Relevant": 0 };
-    const visibleItems = [...menuTitleRows, ...dishRows].filter((item) => selectedStatusSet.has(item.status));
-    return getTotalVisibleChangeTypeCounts(visibleItems, selectedRelevancySet);
-  }, [comparison, dishRows, menuTitleRows, selectedRelevancySet, selectedStatusSet]);
-
-  const visibleMenuTitleSummary = useMemo(() => {
-    if (!comparison) return { deleted: 0, new: 0, updated: 0 };
-    const visibleMenuTitles = menuTitleRows
-      .filter((item) => selectedStatusSet.has(item.status))
-      .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet));
-    return countVisibleStatuses(visibleMenuTitles);
-  }, [comparison, menuTitleRows, selectedRelevancySet, selectedStatusSet]);
-
-  const visibleDishSummary = useMemo(() => {
-    if (!comparison) return { deleted: 0, new: 0, updated: 0 };
-    const visibleDishes = dishRows
-      .filter((item) => selectedStatusSet.has(item.status))
-      .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet));
-    return countVisibleStatuses(visibleDishes);
-  }, [comparison, dishRows, selectedRelevancySet, selectedStatusSet]);
 
   function getBeforeOptionDisableReason(record) {
     const key = String(record.id);
@@ -458,24 +359,7 @@ function BrandComparePage({ group, onBack }) {
     return keys;
   }, [analysisJobsMap]);
 
-  const queuedOrRunningCount = useMemo(
-    () => Object.values(analysisJobsMap)
-      .filter((job) => isJobRunning(job?.status))
-      .filter((job) => eligibleItemKeys.has(makeShortKey(job.item_id, job.item_type))).length,
-    [analysisJobsMap, eligibleItemKeys],
-  );
-
-  const analysedCount = useMemo(
-    () => eligibleItems.filter((item) => {
-      const results = analysisResultsMap[makeShortKey(item.id, item.type)];
-      return results && Object.keys(results).length > 0;
-    }).length,
-    [eligibleItems, analysisResultsMap],
-  );
-
-  const allEligibleAnalysed = eligibleItems.length > 0 && analysedCount === eligibleItems.length;
-
-  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll || isRerunningAll;
+  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll;
   const hasBulkAnalysisSummary = bulkRuns.length > 0;
 
   return (
@@ -497,45 +381,27 @@ function BrandComparePage({ group, onBack }) {
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
               </Button>
-              {allEligibleAnalysed ? (
-                <Button
-                  variant="tonal"
-                  tone="neutral"
-                  onClick={() => setRerunAllConfirmOpen(true)}
-                  disabled={!comparison || isRerunningAll || rerunableItems.length === 0}
-                >
-                  {isRerunningAll ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  {isRerunningAll ? "Queueing Rerun..." : `Rerun Analysis (${rerunableItems.length})`}
-                </Button>
-              ) : (
-                <Button
-                  variant="tonal"
-                  tone="ai"
-                  onClick={() => setRunAllConfirmOpen(true)}
-                  disabled={!comparison || isRunningAll || queueableItems.length === 0}
-                >
-                  {isRunningAll ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Play className="h-3.5 w-3.5" />
-                  )}
-                  {isRunningAll
-                    ? "Queueing Analysis..."
-                    : `Run Analysis (${analysedCount}/${eligibleItems.length} done${queuedOrRunningCount > 0 ? `, ${queuedOrRunningCount} running` : ""})`}
-                </Button>
-              )}
+              <Button
+                variant="tonal"
+                tone="ai"
+                onClick={() => setRunAllConfirmOpen(true)}
+                disabled={!comparison || isRunningAll || queueableItems.length === 0}
+              >
+                {isRunningAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                {isRunningAll ? "Queueing Analysis..." : "Run Analysis"}
+              </Button>
               {hasBulkAnalysisSummary ? (
                 <IconButton
                   tone="neutral"
-                  title="View bulk analysis status"
-                  aria-label="View bulk analysis status"
+                  title="View analysis history"
+                  aria-label="View analysis history"
                   onClick={() => setBulkAnalysisModalOpen(true)}
                 >
-                  <Info className="h-3.5 w-3.5" />
+                  <History className="h-3.5 w-3.5" />
                 </IconButton>
               ) : null}
               <ConfirmDialog
@@ -549,19 +415,6 @@ function BrandComparePage({ group, onBack }) {
                   setRunAllConfirmOpen(false);
                   setBulkAnalysisModalOpen(true);
                   handleRunAll();
-                }}
-              />
-              <ConfirmDialog
-                open={rerunAllConfirmOpen}
-                title="Rerun analysis on all items?"
-                description={`This will delete existing results and rerun analysis for all ${rerunableItems.length} eligible item${rerunableItems.length !== 1 ? "s" : ""}. The jobs keep running even if you close the browser after they are queued.`}
-                confirmLabel="Rerun Analysis"
-                confirmTone="neutral"
-                onCancel={() => setRerunAllConfirmOpen(false)}
-                onConfirm={() => {
-                  setRerunAllConfirmOpen(false);
-                  setBulkAnalysisModalOpen(true);
-                  handleRerunAll();
                 }}
               />
             </div>
@@ -593,31 +446,7 @@ function BrandComparePage({ group, onBack }) {
           Disabled options are marked in the dropdown, for example: <span className="font-semibold">(older than Before)</span>.
         </p>
 
-        {comparison ? (
-          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-4">
-            <KpiTile label="Menu decision">
-              <div className="flex items-center gap-2">
-                <StatusPill status={comparison.menu.status} />
-                <span className="text-slate-700">{comparison.menu.reason}</span>
-              </div>
-            </KpiTile>
-            <SummaryTriple
-              label="Menu Title"
-              deleted={visibleMenuTitleSummary.deleted}
-              added={visibleMenuTitleSummary.new}
-              updated={visibleMenuTitleSummary.updated}
-            />
-            <SummaryTriple
-              label="Dishes"
-              deleted={visibleDishSummary.deleted}
-              added={visibleDishSummary.new}
-              updated={visibleDishSummary.updated}
-            />
-            <KpiTile label="Visible Field Relevancy">
-              <ChangeTypeCounts counts={visibleChangeTypeCounts} />
-            </KpiTile>
-          </div>
-        ) : (
+        {comparison ? null : (
           <p className="mt-3 text-xs text-rose-600">{selectionMessage}</p>
         )}
 
@@ -632,6 +461,14 @@ function BrandComparePage({ group, onBack }) {
 
       {comparison ? (
         <div className="flex flex-col gap-4">
+          <BrandReportCard
+            menuTitleRows={menuTitleRows}
+            dishRows={dishRows}
+            selectedStatuses={selectedStatuses}
+            selectedRelevancies={selectedRelevancies}
+            analysisResultsMap={analysisResultsMap}
+            modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
+          />
           <UnifiedExpandableTable
             menuTitleRows={menuTitleRows}
             dishRows={dishRows}
@@ -643,7 +480,6 @@ function BrandComparePage({ group, onBack }) {
             analysisJobsMap={analysisJobsMap}
             runningKeys={runningKeys}
             onRunOne={handleRunOne}
-            onRerunOne={handleRerunOne}
             eligibleItemKeys={eligibleItemKeys}
             modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
           />

@@ -279,41 +279,10 @@ Deno.serve(async (req) => {
   const beforeRecordId = String(body.beforeRecordId ?? "");
   const afterRecordId = String(body.afterRecordId ?? "");
   const triggerMode = body.triggerMode === "bulk" ? "bulk" : "single";
-  const forceRerun = body.forceRerun === true;
   const jobs = Array.isArray(body.jobs) ? body.jobs : [];
 
   if (!beforeRecordId || !afterRecordId || jobs.length === 0) {
     return json({ error: "beforeRecordId, afterRecordId, and jobs are required." }, 400);
-  }
-
-  if (forceRerun) {
-    const itemIds = jobs.map((j: Record<string, unknown>) => String(j.itemId ?? ""));
-    const itemTypes = jobs.map((j: Record<string, unknown>) => String(j.itemType ?? ""));
-    const uniqueTypes = [...new Set(itemTypes)];
-
-    const { error: clearResultsError } = await serviceClient
-      .from("analysis_results")
-      .delete()
-      .eq("before_record_id", beforeRecordId)
-      .eq("after_record_id", afterRecordId)
-      .in("item_id", itemIds)
-      .in("item_type", uniqueTypes);
-
-    if (clearResultsError) {
-      return json({ error: `Failed to clear old results: ${clearResultsError.message}` }, 500);
-    }
-
-    const { error: clearJobsError } = await serviceClient
-      .from("analysis_jobs")
-      .delete()
-      .eq("before_record_id", beforeRecordId)
-      .eq("after_record_id", afterRecordId)
-      .in("item_id", itemIds)
-      .in("item_type", uniqueTypes);
-
-    if (clearJobsError) {
-      return json({ error: `Failed to clear old jobs: ${clearJobsError.message}` }, 500);
-    }
   }
 
   let batchId: string | null = null;

@@ -5,7 +5,6 @@ import { formatDate } from "../utils/formatDate";
 import { Badge } from "./ui/Badge";
 import { Card } from "./ui/Card";
 import { EmptyState } from "./ui/EmptyState";
-import { SummaryTriple } from "./ui/SummaryTriple";
 
 function getDefaultComparison(group) {
   const records = group.records ?? [];
@@ -63,8 +62,6 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
               <th className="w-32 px-3 py-2">Brand ID</th>
               <th className="w-64 px-3 py-2">Brand Name</th>
               <th className="w-32 px-3 py-2">Status</th>
-              <th className="w-[280px] px-3 py-2">Menu Title</th>
-              <th className="w-[280px] px-3 py-2">Dishes</th>
               <th className="w-44 px-3 py-2">Latest updatedAt</th>
             </tr>
           </thead>
@@ -120,30 +117,6 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
                       <Badge tone="success">Resolved</Badge>
                     ) : (
                       <Badge tone="warning">For Review</Badge>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {comparison ? (
-                      <SummaryTriple
-                        bare
-                        deleted={comparison.summary.menuTitles.deleted}
-                        added={comparison.summary.menuTitles.new}
-                        updated={comparison.summary.menuTitles.updated}
-                      />
-                    ) : (
-                      <span className="text-slate-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {comparison ? (
-                      <SummaryTriple
-                        bare
-                        deleted={comparison.summary.dishes.deleted}
-                        added={comparison.summary.dishes.new}
-                        updated={comparison.summary.dishes.updated}
-                      />
-                    ) : (
-                      <span className="text-slate-400">-</span>
                     )}
                   </td>
                   <td className="px-3 py-2">{formatDate(group.latest?.updatedAt)}</td>
