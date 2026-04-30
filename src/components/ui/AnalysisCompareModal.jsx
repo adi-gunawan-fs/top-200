@@ -103,7 +103,7 @@ function ModelPanel({ name, result }) {
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden border-t border-slate-200 pt-3">
+            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden pt-3">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Critical Reasons</p>
               {result.critical_reasons?.length > 0 ? (
                 <ul className="flex flex-col gap-1 overflow-y-auto pr-1">
@@ -117,7 +117,7 @@ function ModelPanel({ name, result }) {
             </div>
 
             {result.parameter_scores && (
-              <div className="flex flex-col gap-1.5 border-t border-slate-200 pt-3">
+              <div className="flex flex-col gap-1.5 pt-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Scores</p>
                 <table className="w-full border-collapse text-[11px]">
                   <thead>
