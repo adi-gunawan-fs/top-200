@@ -285,32 +285,29 @@ Deno.serve(async (req) => {
     return json({ error: "beforeRecordId, afterRecordId, and jobs are required." }, 400);
   }
 
-  let batchId: string | null = null;
+  const { data: batchRow, error: batchError } = await serviceClient
+    .from("analysis_bulk_runs")
+    .insert({
+      before_record_id: beforeRecordId,
+      after_record_id: afterRecordId,
+      status: "pending",
+      total_items: jobs.length,
+      queued_count: jobs.length,
+      processing_count: 0,
+      completed_count: 0,
+      failed_count: 0,
+      trigger_mode: triggerMode,
+      queued_by: user.id,
+      started_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
 
-  if (triggerMode === "bulk") {
-    const { data: batchRow, error: batchError } = await serviceClient
-      .from("analysis_bulk_runs")
-      .insert({
-        before_record_id: beforeRecordId,
-        after_record_id: afterRecordId,
-        status: "pending",
-        total_items: jobs.length,
-        queued_count: jobs.length,
-        processing_count: 0,
-        completed_count: 0,
-        failed_count: 0,
-        queued_by: user.id,
-        started_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (batchError) {
-      return json({ error: batchError.message }, 500);
-    }
-
-    batchId = String(batchRow.id);
+  if (batchError) {
+    return json({ error: batchError.message }, 500);
   }
+
+  const batchId = String(batchRow.id);
 
   const rows = jobs.map((job: Record<string, unknown>) => ({
     before_record_id: beforeRecordId,

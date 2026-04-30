@@ -133,7 +133,7 @@ function BrandComparePage({ group, onBack }) {
   }, [group.key]);
 
   useEffect(() => {
-    const activeBulkRun = bulkRuns.find((run) => isBulkRunActive(run));
+    const activeBulkRun = bulkRuns.find((run) => isBulkRunActive(run) && run.trigger_mode !== "single");
 
     if (activeBulkRun) {
       setBulkAnalysisModalOpen(true);
@@ -277,6 +277,8 @@ function BrandComparePage({ group, onBack }) {
     });
     const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
     setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
+    const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
+    setBulkRuns(bulkRunRows);
   }
 
   async function handleRunAll() {
@@ -373,7 +375,7 @@ function BrandComparePage({ group, onBack }) {
     return keys;
   }, [analysisJobsMap]);
 
-  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run)) || isRunningAll;
+  const hasActiveAnalysisJobs = bulkRuns.some((run) => isBulkRunActive(run) && run.trigger_mode !== "single") || isRunningAll;
   const hasBulkAnalysisSummary = bulkRuns.length > 0;
 
   return (

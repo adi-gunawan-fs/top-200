@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, AlertTriangle, XCircle } from "lucide-react";
 import { parseDateValue, formatDate } from "../../utils/formatDate";
-import { Drawer } from "./Drawer";
+import { Modal } from "./Modal";
 import { Button } from "./Button";
 
 function formatElapsed(ms) {
@@ -58,43 +58,48 @@ function getRunVisuals(run) {
   };
 }
 
+function getRunKindLabel(run) {
+  return run?.trigger_mode === "single" ? "Single-item analysis" : "Bulk analysis";
+}
+
 function getStatusSentence(run) {
   const total = run.total_items ?? 0;
   const completed = run.completed_count ?? 0;
   const failed = run.failed_count ?? 0;
+  const kind = getRunKindLabel(run);
 
   if (isRunActive(run)) {
     return (
       <>
-        Bulk analysis is <span className="font-semibold text-slate-900">processing</span>
+        {kind} is <span className="font-semibold text-slate-900">processing</span>
         {" "}
-        ({completed + failed} of {total} items finished).
+        ({completed + failed} of {total} item{total !== 1 ? "s" : ""} finished).
       </>
     );
   }
   if (run.status === "cancelled") {
     return (
       <>
-        Bulk analysis was <span className="font-semibold text-slate-900">cancelled</span>
+        {kind} was <span className="font-semibold text-slate-900">cancelled</span>
         {" "}
-        ({completed} of {total} items finished).
+        ({completed} of {total} item{total !== 1 ? "s" : ""} finished).
       </>
     );
   }
   if (failed > 0) {
     return (
       <>
-        Bulk analysis <span className="font-semibold text-slate-900">completed with {failed} failure{failed !== 1 ? "s" : ""}</span>
+        {kind} <span className="font-semibold text-slate-900">completed with {failed} failure{failed !== 1 ? "s" : ""}</span>
         {" "}
-        ({completed} of {total} items succeeded).
+        ({completed} of {total} item{total !== 1 ? "s" : ""} succeeded).
       </>
     );
   }
   return (
     <>
-      Bulk analysis <span className="font-semibold text-slate-900">completed successfully</span>
+      {kind} <span className="font-semibold text-slate-900">completed successfully</span>
       {" "}
-      ({completed} of {total} items finished).
+      ({completed} of {total} item{total !== 1 ? "s" : ""} finished).
     </>
   );
 }
@@ -207,7 +212,7 @@ export function AnalysisProgressModal({
   const subtitle = brandName ? brandName : undefined;
 
   return (
-    <Drawer
+    <Modal
       open={open}
       onClose={dismissible ? onClose : undefined}
       size="lg"
@@ -236,6 +241,6 @@ export function AnalysisProgressModal({
           </ol>
         )}
       </div>
-    </Drawer>
+    </Modal>
   );
 }
