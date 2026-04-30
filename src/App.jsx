@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, KeyRound, LogOut } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Settings } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
@@ -7,14 +7,17 @@ import UploadSelector from "./components/UploadSelector";
 import { Button } from "./components/ui/Button";
 import { EmptyState } from "./components/ui/EmptyState";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
+import { SettingsModal } from "./components/ui/SettingsModal";
 import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
+import { WeightsProvider } from "./contexts/WeightsContext";
 
 function App() {
   const [session, setSession] = useState(undefined);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const [activeUpload, setActiveUpload] = useState(null);
@@ -95,6 +98,7 @@ function App() {
   }
 
   return (
+    <WeightsProvider userId={session.user.id}>
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
         <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between gap-4 px-4">
@@ -116,7 +120,6 @@ function App() {
               onUploadSelect={handleUploadSelect}
               onFileReady={handleFileReady}
             />
-            <span className="hidden h-4 w-px bg-slate-200 sm:block" />
             <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
@@ -141,6 +144,14 @@ function App() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => { setUserMenuOpen(false); setSettingsOpen(true); }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      <Settings className="h-3.5 w-3.5 text-slate-400" />
+                      Settings
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true); }}
                       className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
                     >
@@ -163,6 +174,9 @@ function App() {
             {changePasswordOpen && (
               <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />
             )}
+            {settingsOpen && (
+              <SettingsModal onClose={() => setSettingsOpen(false)} />
+            )}
           </div>
         </div>
       </header>
@@ -177,6 +191,7 @@ function App() {
         )}
       </div>
     </div>
+    </WeightsProvider>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Card } from "./ui/Card";
 import { getAnalysisReviewStatus } from "../utils/analysisReview";
+import { useWeights } from "../contexts/WeightsContext";
 import {
   filterChangedFieldsByRelevancy,
   getFieldRelevancy,
@@ -19,7 +20,7 @@ function countByStatus(items) {
   return counts;
 }
 
-function buildReviewCounts(items, analysisResultsMap, modelNames) {
+function buildReviewCounts(items, analysisResultsMap, modelNames, weights) {
   const counts = {
     Resolved: 0,
     "Low Review": 0,
@@ -31,7 +32,7 @@ function buildReviewCounts(items, analysisResultsMap, modelNames) {
   items.forEach((item) => {
     const shortKey = `${item.id}__${item.type}`;
     const modelResults = analysisResultsMap[shortKey];
-    const status = getAnalysisReviewStatus(modelResults, modelNames);
+    const status = getAnalysisReviewStatus(modelResults, modelNames, weights);
     if (status && status in counts) {
       counts[status] += 1;
     } else {
@@ -82,6 +83,7 @@ export function BrandReportCard({
   analysisResultsMap,
   modelNames,
 }) {
+  const { weights } = useWeights();
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
 
@@ -104,8 +106,8 @@ export function BrandReportCard({
   );
 
   const reviewCounts = useMemo(
-    () => buildReviewCounts(eligibleAll, analysisResultsMap, modelNames),
-    [eligibleAll, analysisResultsMap, modelNames],
+    () => buildReviewCounts(eligibleAll, analysisResultsMap, modelNames, weights),
+    [eligibleAll, analysisResultsMap, modelNames, weights],
   );
   const relevancyCounts = useMemo(
     () => buildRelevancyCounts([...visibleMenuTitles, ...visibleDishes], selectedRelevancySet),

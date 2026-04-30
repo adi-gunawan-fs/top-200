@@ -11,11 +11,11 @@ export const PARAMETER_WEIGHTS = {
   parsing_difficulty: 0.10,
 };
 
-export function calcWeightedScore(parameterScores) {
+export function calcWeightedScore(parameterScores, weights = PARAMETER_WEIGHTS) {
   if (!parameterScores) return null;
   let weightedSum = 0;
   let totalWeight = 0;
-  for (const [key, weight] of Object.entries(PARAMETER_WEIGHTS)) {
+  for (const [key, weight] of Object.entries(weights)) {
     const score = parameterScores[key];
     if (score != null) {
       weightedSum += score * weight;
@@ -26,8 +26,8 @@ export function calcWeightedScore(parameterScores) {
   return weightedSum / totalWeight;
 }
 
-export function calcComplexity(parameterScores) {
-  const score = calcWeightedScore(parameterScores);
+export function calcComplexity(parameterScores, weights = PARAMETER_WEIGHTS) {
+  const score = calcWeightedScore(parameterScores, weights);
   if (score == null) return null;
   return score > 5 ? "Hard" : "Easy";
 }
@@ -43,13 +43,13 @@ function normalizeChangeStatus(value) {
   return normalized;
 }
 
-function getComparableSignature(result) {
+function getComparableSignature(result, weights) {
   if (!result || result.error) return null;
 
   const changeStatus = normalizeChangeStatus(result.change_status);
   if (!changeStatus) return null;
 
-  const complexity = calcComplexity(result.parameter_scores) ?? "unknown";
+  const complexity = calcComplexity(result.parameter_scores, weights) ?? "unknown";
   return `${complexity}__${changeStatus}`;
 }
 
@@ -60,9 +60,9 @@ function deriveStatus(changeStatus, complexity) {
   return complexity === "Hard" ? "Critical Review" : "Low Review";
 }
 
-export function getAnalysisReviewStatus(modelResults, modelNames = []) {
+export function getAnalysisReviewStatus(modelResults, modelNames = [], weights = PARAMETER_WEIGHTS) {
   const signatures = modelNames
-    .map((name) => getComparableSignature(modelResults?.[name]))
+    .map((name) => getComparableSignature(modelResults?.[name], weights))
     .filter(Boolean);
 
   if (modelNames.length === 0 || signatures.length !== modelNames.length) {
@@ -71,10 +71,9 @@ export function getAnalysisReviewStatus(modelResults, modelNames = []) {
 
   if (new Set(signatures).size > 1) return "Judge Confused";
 
-  // All models agree — derive status from the shared signature
   const result = modelResults?.[modelNames[0]];
   const changeStatus = normalizeChangeStatus(result?.change_status);
-  const complexity = calcComplexity(result?.parameter_scores);
+  const complexity = calcComplexity(result?.parameter_scores, weights);
   return deriveStatus(changeStatus, complexity);
 }
 

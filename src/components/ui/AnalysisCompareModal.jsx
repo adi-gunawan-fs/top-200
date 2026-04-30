@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { Badge } from "./Badge";
 import { IconButton } from "./Button";
-import { formatAnalysisChangeStatus, calcWeightedScore, calcComplexity, PARAMETER_WEIGHTS } from "../../utils/analysisReview";
+import { formatAnalysisChangeStatus, calcWeightedScore, calcComplexity } from "../../utils/analysisReview";
 import { toBeforeAfterExport } from "../../utils/exportComparison";
+import { useWeights } from "../../contexts/WeightsContext";
 
 const CHANGE_STATUS_TONE = {
   NO_CHANGE: "neutral",
@@ -67,7 +68,7 @@ function InputPanel({ item }) {
   );
 }
 
-function ModelPanel({ name, result }) {
+function ModelPanel({ name, result, weights }) {
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
@@ -84,7 +85,7 @@ function ModelPanel({ name, result }) {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Output</p>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(() => {
-                  const complexity = calcComplexity(result.parameter_scores);
+                  const complexity = calcComplexity(result.parameter_scores, weights);
                   const normalizedChangeStatus = String(result.change_status ?? "").trim().toUpperCase();
                   const changeStatusTone = CHANGE_STATUS_TONE[normalizedChangeStatus] ?? "neutral";
                   return (
@@ -117,7 +118,7 @@ function ModelPanel({ name, result }) {
                   </thead>
                   <tbody>
                     {Object.entries(result.parameter_scores).map(([k, v]) => {
-                      const weight = PARAMETER_WEIGHTS[k];
+                      const weight = weights[k];
                       const weighted = weight != null ? v * weight : null;
                       return (
                         <tr key={k} className="border-t border-slate-100">
@@ -128,13 +129,13 @@ function ModelPanel({ name, result }) {
                         </tr>
                       );
                     })}
-                    {calcWeightedScore(result.parameter_scores) != null && (
+                    {calcWeightedScore(result.parameter_scores, weights) != null && (
                       <tr className="border-t border-slate-200">
                         <td colSpan={3} className="pt-1.5 text-right font-semibold uppercase tracking-wide text-slate-500">
                           Avg
                         </td>
                         <td className="pt-1.5 text-right font-semibold text-slate-900">
-                          {calcWeightedScore(result.parameter_scores).toFixed(1)}
+                          {calcWeightedScore(result.parameter_scores, weights).toFixed(1)}
                         </td>
                       </tr>
                     )}
@@ -164,6 +165,7 @@ function ModelPanel({ name, result }) {
 
 export function AnalysisCompareModal({ itemLabel, itemId, item, modelNames, modelResults, onClose }) {
   const panelRef = useRef(null);
+  const { weights } = useWeights();
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -215,7 +217,7 @@ export function AnalysisCompareModal({ itemLabel, itemId, item, modelNames, mode
           )}
           {modelNames.map((name) => (
             <div key={name} className="overflow-hidden">
-              <ModelPanel name={name} result={modelResults[name]} />
+              <ModelPanel name={name} result={modelResults[name]} weights={weights} />
             </div>
           ))}
         </div>

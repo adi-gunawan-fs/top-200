@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
+import { useWeights } from "../contexts/WeightsContext";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
 import { Button, IconButton } from "./ui/Button";
@@ -172,7 +173,7 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
   );
 }
 
-function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningKeys, isEligible }) {
+function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningKeys, isEligible, weights }) {
   if (!isEligible) {
     return <span className="text-slate-400">-</span>;
   }
@@ -181,7 +182,7 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
     return <span className="text-slate-400">-</span>;
   }
 
-  const status = getAnalysisReviewStatus(analysisResultsMap[shortKey], modelNames);
+  const status = getAnalysisReviewStatus(analysisResultsMap[shortKey], modelNames, weights);
   if (!status) {
     return <span className="text-slate-400">-</span>;
   }
@@ -214,6 +215,7 @@ export function UnifiedExpandableTable({
   eligibleItemKeys,
   modelNames,
 }) {
+  const { weights } = useWeights();
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const { roots, orphanDishes } = useMemo(
     () => buildHierarchy(menuTitleRows, dishRows),
@@ -419,6 +421,7 @@ export function UnifiedExpandableTable({
                         analysisResultsMap={analysisResultsMap}
                         runningKeys={runningKeys}
                         isEligible={isEligible}
+                        weights={weights}
                       />
                     </td>
                     <td className="px-3 py-2">
