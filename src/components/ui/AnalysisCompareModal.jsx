@@ -73,19 +73,18 @@ function ModelPanel({ name, result }) {
       <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <p className="text-[11px] font-semibold text-slate-700">{name}</p>
       </div>
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div className="grid flex-1 grid-rows-[42px_136px_auto] gap-4 overflow-y-auto p-4">
         {!result ? (
           <p className="text-xs text-slate-400">No result</p>
         ) : result.error ? (
           <p className="text-xs text-rose-500">{result.error}</p>
         ) : (
           <>
-            <div className="flex flex-col gap-2">
+            <div className="flex min-h-0 flex-col gap-2">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Output</p>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(() => {
                   const complexity = calcComplexity(result.parameter_scores);
-                  const weightedScore = calcWeightedScore(result.parameter_scores);
                   const normalizedChangeStatus = String(result.change_status ?? "").trim().toUpperCase();
                   const changeStatusTone = CHANGE_STATUS_TONE[normalizedChangeStatus] ?? "neutral";
                   return (
@@ -98,28 +97,27 @@ function ModelPanel({ name, result }) {
                       <Badge tone={changeStatusTone} uppercase={false}>
                         {formatAnalysisChangeStatus(result.change_status)}
                       </Badge>
-                      {weightedScore != null && (
-                        <span className="text-[11px] text-slate-500">avg {weightedScore.toFixed(1)}</span>
-                      )}
                     </>
                   );
                 })()}
               </div>
             </div>
 
-            {result.critical_reasons?.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Critical Reasons</p>
-                <ul className="flex flex-col gap-1">
+            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden border-t border-slate-200 pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Critical Reasons</p>
+              {result.critical_reasons?.length > 0 ? (
+                <ul className="flex flex-col gap-1 overflow-y-auto pr-1">
                   {result.critical_reasons.map((r, i) => (
                     <li key={i} className="text-[11px] leading-snug text-slate-600">· {r}</li>
                   ))}
                 </ul>
-              </div>
-            )}
+              ) : (
+                <p className="text-[11px] text-slate-400">-</p>
+              )}
+            </div>
 
             {result.parameter_scores && (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 border-t border-slate-200 pt-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Scores</p>
                 <table className="w-full border-collapse text-[11px]">
                   <thead>
@@ -143,6 +141,16 @@ function ModelPanel({ name, result }) {
                         </tr>
                       );
                     })}
+                    {calcWeightedScore(result.parameter_scores) != null && (
+                      <tr className="border-t border-slate-200">
+                        <td colSpan={3} className="pt-1.5 text-right font-semibold uppercase tracking-wide text-slate-500">
+                          Avg
+                        </td>
+                        <td className="pt-1.5 text-right font-semibold text-slate-900">
+                          {calcWeightedScore(result.parameter_scores).toFixed(1)}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
