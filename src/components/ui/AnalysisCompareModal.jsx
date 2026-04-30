@@ -73,7 +73,7 @@ function ModelPanel({ name, result }) {
       <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
         <p className="text-[11px] font-semibold text-slate-700">{name}</p>
       </div>
-      <div className="grid flex-1 grid-rows-[42px_136px_auto] gap-4 overflow-y-auto p-4">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         {!result ? (
           <p className="text-xs text-slate-400">No result</p>
         ) : result.error ? (
@@ -101,19 +101,6 @@ function ModelPanel({ name, result }) {
                   );
                 })()}
               </div>
-            </div>
-
-            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden pt-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Critical Reasons</p>
-              {result.critical_reasons?.length > 0 ? (
-                <ul className="flex flex-col gap-1 overflow-y-auto pr-1">
-                  {result.critical_reasons.map((r, i) => (
-                    <li key={i} className="text-[11px] leading-snug text-slate-600">· {r}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[11px] text-slate-400">-</p>
-              )}
             </div>
 
             {result.parameter_scores && (
@@ -155,6 +142,19 @@ function ModelPanel({ name, result }) {
                 </table>
               </div>
             )}
+
+            <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Critical Reasons</p>
+              {result.critical_reasons?.length > 0 ? (
+                <ul className="flex flex-col gap-1 overflow-y-auto pr-1">
+                  {result.critical_reasons.map((r, i) => (
+                    <li key={i} className="text-[11px] leading-snug text-slate-600">· {r}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[11px] text-slate-400">-</p>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -192,7 +192,7 @@ export function AnalysisCompareModal({ itemLabel, itemId, item, modelNames, mode
     >
       <div
         ref={panelRef}
-        className="flex h-[85vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+        className="flex h-[90vh] w-[90vw] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -29,7 +29,7 @@ export function calcWeightedScore(parameterScores) {
 export function calcComplexity(parameterScores) {
   const score = calcWeightedScore(parameterScores);
   if (score == null) return null;
-  return score >= 4 ? "Hard" : "Easy";
+  return score > 5 ? "Hard" : "Easy";
 }
 
 function normalizeChangeStatus(value) {
