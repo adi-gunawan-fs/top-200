@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Play, Loader2, History } from "lucide-react";
+import { ArrowLeft, Download, Play, Loader2, History, RefreshCw } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
@@ -68,6 +68,7 @@ function BrandComparePage({ group, onBack }) {
   const [bulkRuns, setBulkRuns] = useState([]);
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
+  const [rerunAllConfirmOpen, setRerunAllConfirmOpen] = useState(false);
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
 
@@ -187,6 +188,15 @@ function BrandComparePage({ group, onBack }) {
     [eligibleItems, analysisJobsMap, analysisResultsMap],
   );
 
+  const rerunnableItems = useMemo(
+    () => eligibleItems.filter((item) => {
+      const shortKey = makeShortKey(item.id, item.type);
+      const job = analysisJobsMap[shortKey];
+      return !isJobRunning(job?.status);
+    }),
+    [eligibleItems, analysisJobsMap],
+  );
+
   useEffect(() => {
     if (!beforeId || !afterId || beforeId === afterId) {
       setAnalysisResultsMap({});
@@ -268,33 +278,50 @@ function BrandComparePage({ group, onBack }) {
     };
   }, [shouldPoll, beforeId, afterId]);
 
-  async function handleRunOne(item) {
+  async function handleRunOne(item, { replaceExisting = false } = {}) {
     const response = await enqueueAnalysisJobs({
       beforeRecordId: beforeId,
       afterRecordId: afterId,
       triggerMode: "single",
+      replaceExisting,
       jobs: [{ itemId: String(item.id), itemType: String(item.type), exportItem: toBeforeAfterExport(item) }],
     });
+    if (replaceExisting) {
+      const shortKey = makeShortKey(item.id, item.type);
+      setAnalysisResultsMap((prev) => {
+        const next = { ...prev };
+        delete next[shortKey];
+        return next;
+      });
+    }
     const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
     setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
     const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
     setBulkRuns(bulkRunRows);
   }
 
-  async function handleRunAll() {
-    if (!comparison || queueableItems.length === 0) return;
+  async function handleRunAll({ replaceExisting = false } = {}) {
+    const targetItems = replaceExisting ? rerunnableItems : queueableItems;
+    if (!comparison || targetItems.length === 0) return;
     setIsRunningAll(true);
     try {
       const response = await enqueueAnalysisJobs({
         beforeRecordId: beforeId,
         afterRecordId: afterId,
         triggerMode: "bulk",
-        jobs: queueableItems.map((item) => ({
+        replaceExisting,
+        jobs: targetItems.map((item) => ({
           itemId: String(item.id),
           itemType: String(item.type),
           exportItem: toBeforeAfterExport(item),
         })),
       });
+      if (replaceExisting) {
+        const replacedKeys = new Set(targetItems.map((item) => makeShortKey(item.id, item.type)));
+        setAnalysisResultsMap((prev) => Object.fromEntries(
+          Object.entries(prev).filter(([shortKey]) => !replacedKeys.has(shortKey)),
+        ));
+      }
       const queuedJobs = Array.isArray(response?.jobs) ? response.jobs : [];
       setAnalysisJobsMap((prev) => ({ ...prev, ...mapAnalysisJobs(queuedJobs, "pending") }));
       const bulkRunRows = await fetchAnalysisBulkRuns(beforeId, afterId);
@@ -410,6 +437,19 @@ function BrandComparePage({ group, onBack }) {
                 )}
                 {isRunningAll ? "Queueing Analysis..." : "Run Analysis"}
               </Button>
+              <Button
+                variant="tonal"
+                tone="warning"
+                onClick={() => setRerunAllConfirmOpen(true)}
+                disabled={!comparison || isRunningAll || rerunnableItems.length === 0}
+              >
+                {isRunningAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Re-run Analysis
+              </Button>
               {hasBulkAnalysisSummary ? (
                 <IconButton
                   tone="neutral"
@@ -431,6 +471,19 @@ function BrandComparePage({ group, onBack }) {
                   setRunAllConfirmOpen(false);
                   setBulkAnalysisModalOpen(true);
                   handleRunAll();
+                }}
+              />
+              <ConfirmDialog
+                open={rerunAllConfirmOpen}
+                title="Re-run analysis and replace previous data?"
+                description={`This will delete previous analysis data for ${rerunnableItems.length} item${rerunnableItems.length !== 1 ? "s" : ""}, then queue a fresh server-side analysis run.`}
+                confirmLabel="Re-run Analysis"
+                confirmTone="warning"
+                onCancel={() => setRerunAllConfirmOpen(false)}
+                onConfirm={() => {
+                  setRerunAllConfirmOpen(false);
+                  setBulkAnalysisModalOpen(true);
+                  handleRunAll({ replaceExisting: true });
                 }}
               />
             </div>

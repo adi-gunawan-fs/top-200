@@ -41,7 +41,10 @@ async function resolveFunctionId(slug: string) {
   const response = await fetch(`https://api.braintrust.dev/v1/function?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${braintrustApiKey}`,
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
     },
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -60,6 +63,25 @@ async function resolveFunctionId(slug: string) {
 
 async function invokeModel(slug: string, exportItem: Record<string, unknown>) {
   const functionId = await resolveFunctionId(slug);
+  const runId = crypto.randomUUID();
+  const requestedAt = new Date().toISOString();
+  const analysisRun = {
+    id: runId,
+    requestedAt,
+    fresh: true,
+    instruction: "Fresh re-analysis request. Do not reuse any previous output.",
+  };
+  const input = {
+    ...exportItem,
+    before: {
+      ...((exportItem.before as Record<string, unknown>) ?? {}),
+      _analysisRun: analysisRun,
+    },
+    after: {
+      ...((exportItem.after as Record<string, unknown>) ?? {}),
+      _analysisRun: analysisRun,
+    },
+  };
 
   const response = await fetch(`https://api.braintrust.dev/v1/function/${functionId}/invoke`, {
     method: "POST",
@@ -69,7 +91,15 @@ async function invokeModel(slug: string, exportItem: Record<string, unknown>) {
       "Cache-Control": "no-cache, no-store, must-revalidate",
       Pragma: "no-cache",
     },
-    body: JSON.stringify({ input: exportItem }),
+    body: JSON.stringify({
+      input,
+      metadata: {
+        run_id: runId,
+        fresh_analysis: true,
+        requested_at: requestedAt,
+      },
+      tags: ["fresh-analysis"],
+    }),
     cache: "no-store",
   });
 
@@ -108,6 +138,66 @@ async function runBraintrustAnalysisAllModels(exportItem: Record<string, unknown
   return entries;
 }
 
+function isModelError(result: unknown) {
+  return Boolean(
+    result
+      && typeof result === "object"
+      && "error" in result
+      && typeof (result as { error?: unknown }).error === "string",
+  );
+}
+
+async function deleteExistingAnalysis(
+  serviceClient: ReturnType<typeof createClient>,
+  beforeRecordId: string,
+  afterRecordId: string,
+  rows: Array<{ item_id: string; item_type: string }>,
+) {
+  await Promise.all(rows.map(async ({ item_id, item_type }) => {
+    const { data: activeJobs, error: activeJobsError } = await serviceClient
+      .from("analysis_jobs")
+      .select("id")
+      .eq("before_record_id", beforeRecordId)
+      .eq("after_record_id", afterRecordId)
+      .eq("item_id", item_id)
+      .eq("item_type", item_type)
+      .in("status", ["pending", "processing"])
+      .limit(1);
+
+    if (activeJobsError) {
+      throw activeJobsError;
+    }
+
+    if ((activeJobs ?? []).length > 0) {
+      throw new Error(`Cannot replace analysis for ${item_type} ${item_id} while a job is still running.`);
+    }
+
+    const { error: resultsError } = await serviceClient
+      .from("analysis_results")
+      .delete()
+      .eq("before_record_id", beforeRecordId)
+      .eq("after_record_id", afterRecordId)
+      .eq("item_id", item_id)
+      .eq("item_type", item_type);
+
+    if (resultsError) {
+      throw resultsError;
+    }
+
+    const { error: jobsError } = await serviceClient
+      .from("analysis_jobs")
+      .delete()
+      .eq("before_record_id", beforeRecordId)
+      .eq("after_record_id", afterRecordId)
+      .eq("item_id", item_id)
+      .eq("item_type", item_type);
+
+    if (jobsError) {
+      throw jobsError;
+    }
+  }));
+}
+
 async function processJob(serviceClient: ReturnType<typeof createClient>, job: Record<string, unknown>) {
   const jobId = String(job.id);
   const beforeRecordId = String(job.before_record_id);
@@ -133,6 +223,13 @@ async function processJob(serviceClient: ReturnType<typeof createClient>, job: R
 
   try {
     const modelEntries = await runBraintrustAnalysisAllModels(exportItem);
+    const failedEntries = modelEntries.filter(([, , result]) => isModelError(result));
+
+    if (failedEntries.length === modelEntries.length) {
+      throw new Error(failedEntries
+        .map(([name, , result]) => `${name}: ${(result as { error: string }).error}`)
+        .join(" | "));
+    }
 
     const { data: currentJob } = await serviceClient
       .from("analysis_jobs")
@@ -279,6 +376,7 @@ Deno.serve(async (req) => {
   const beforeRecordId = String(body.beforeRecordId ?? "");
   const afterRecordId = String(body.afterRecordId ?? "");
   const triggerMode = body.triggerMode === "bulk" ? "bulk" : "single";
+  const replaceExisting = Boolean(body.replaceExisting);
   const jobs = Array.isArray(body.jobs) ? body.jobs : [];
 
   if (!beforeRecordId || !afterRecordId || jobs.length === 0) {
@@ -327,11 +425,24 @@ Deno.serve(async (req) => {
     return json({ error: "Each job requires itemId and itemType." }, 400);
   }
 
-  const { data: queuedRows, error: queueError } = await serviceClient
-    .from("analysis_jobs")
-    .upsert(rows, {
-      onConflict: "before_record_id,after_record_id,item_id,item_type",
-    })
+  if (replaceExisting) {
+    try {
+      await deleteExistingAnalysis(serviceClient, beforeRecordId, afterRecordId, rows);
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  }
+
+  const queueQuery = serviceClient
+    .from("analysis_jobs");
+
+  const { data: queuedRows, error: queueError } = await (
+    replaceExisting
+      ? queueQuery.insert(rows)
+      : queueQuery.upsert(rows, {
+        onConflict: "before_record_id,after_record_id,item_id,item_type",
+      })
+  )
     .select("id, before_record_id, after_record_id, item_id, item_type, batch_id, status, error_message, started_at, completed_at, created_at, updated_at, export_item");
 
   if (queueError) {
