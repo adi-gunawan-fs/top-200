@@ -4,6 +4,14 @@ import { Badge } from "./Badge";
 import { ChangeTypeBadge } from "./ChangeTypeBadge";
 import { ChallengeBadge } from "./ChallengeBadge";
 
+function formatSchemaLabel(schema) {
+  if (!schema) return "";
+  return schema
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\bId\b/g, "ID")
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
 function RulesTable({ itemType }) {
   const typeRules = CHANGE_TYPE_RULES[itemType] ?? {};
   const challengeRules = CHALLENGE_RULES[itemType] ?? {};
@@ -11,7 +19,7 @@ function RulesTable({ itemType }) {
 
   return (
     <div className="rounded border border-slate-200 bg-white p-2">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">Rules</p>
+      <p className="mb-1 text-[10px] font-semibold text-slate-600">Rules</p>
       <div className="overflow-x-auto">
         <table className="min-w-[340px] text-[11px]">
           <thead>
@@ -24,7 +32,7 @@ function RulesTable({ itemType }) {
           <tbody>
             {schemas.map((schema) => (
               <tr key={schema} className="border-b border-slate-100 last:border-b-0">
-                <td className="px-1 py-1 font-medium text-slate-700">{schema}</td>
+                <td className="px-1 py-1 font-medium text-slate-700">{formatSchemaLabel(schema)}</td>
                 <td className="px-1 py-1">
                   <ChangeTypeBadge type={typeRules[schema]} />
                 </td>
@@ -37,10 +45,10 @@ function RulesTable({ itemType }) {
         </table>
       </div>
       <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-600">
-        <p>Challenge label rule:</p>
+        <p>Challenge label rules:</p>
         <p>Only shown when Require Curation is true.</p>
-        <p>If changed fields include Hard, label Hard. Else if Easy exists, label Easy.</p>
-        <p>Parent rule: if a Menu Title is Hard, all its curation-required dishes are Hard.</p>
+        <p>If changed fields include Hard, the label is Hard. Else if Easy exists, the label is Easy.</p>
+        <p>Parent rule: if a menu title is Hard, all its curation-required dishes are Hard.</p>
       </div>
     </div>
   );
@@ -56,7 +64,7 @@ export function ColorCodeTable() {
 
   return (
     <div className="rounded border border-slate-200 bg-white p-2">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">Color Code</p>
+      <p className="mb-1 text-[10px] font-semibold text-slate-600">Color Code</p>
       <div className="overflow-x-auto">
         <table className="min-w-[280px] text-[11px]">
           <thead>

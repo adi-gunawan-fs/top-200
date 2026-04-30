@@ -1,8 +1,8 @@
 import { Badge } from "./Badge";
 
 export function ChangeTypeBadge({ type }) {
-  if (type === "Relevant") return <Badge tone="danger">Relevant</Badge>;
-  return <Badge tone="neutral">Not Relevant</Badge>;
+  if (type === "Relevant") return <Badge tone="danger" uppercase={false}>Relevant</Badge>;
+  return <Badge tone="neutral" uppercase={false}>Not Relevant</Badge>;
 }
 
 export function ChangeTypeCounts({ counts }) {

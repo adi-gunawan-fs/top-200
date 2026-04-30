@@ -58,7 +58,7 @@ function StatRow({ label, value }) {
   return (
     <div className="flex items-center justify-between border-b border-slate-100 py-1.5 last:border-b-0">
       <span className="text-xs text-slate-600">{label}</span>
-      <span className="text-sm font-semibold tabular-nums text-slate-900">{value}</span>
+      <span className="text-xs font-normal text-slate-600">{value}</span>
     </div>
   );
 }
@@ -66,7 +66,7 @@ function StatRow({ label, value }) {
 function ReportSection({ title, children }) {
   return (
     <div className="flex flex-col">
-      <h3 className="mb-1 border-b border-slate-200 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <h3 className="mb-1 border-b border-slate-200 pb-1 text-[11px] font-semibold text-slate-500">
         {title}
       </h3>
       <div className="flex flex-col">{children}</div>
