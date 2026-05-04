@@ -5,7 +5,6 @@ import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import BrandPickerPage from "./components/BrandPickerPage";
 import UploadSelector from "./components/UploadSelector";
-import { Button } from "./components/ui/Button";
 import { EmptyState } from "./components/ui/EmptyState";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
 import { SettingsModal } from "./components/ui/SettingsModal";
@@ -13,6 +12,7 @@ import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
+import { fetchMenuMessages } from "./lib/dbFetch";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
@@ -44,9 +44,7 @@ function App() {
     setError("");
     setGroups([]);
     setSelectedGroup(null);
-
     const grouper = createMenuGrouper();
-
     try {
       await parseCsv(file, { onRow: (row) => grouper.addRow(row) });
       setGroups(grouper.finalize());
@@ -59,18 +57,11 @@ function App() {
 
   const handleUploadSelect = useCallback(async (upload) => {
     setActiveUpload(upload);
-
-    if (!upload) {
-      setGroups([]);
-      setSelectedGroup(null);
-      return;
-    }
-
+    if (!upload) { setGroups([]); setSelectedGroup(null); return; }
     setLoading(true);
     setError("");
     setGroups([]);
     setSelectedGroup(null);
-
     try {
       const file = await fetchCsvFile(upload.file_path);
       await parseFile(file);
@@ -85,11 +76,32 @@ function App() {
     parseFile(file);
   }, [parseFile]);
 
-  const handleDbGroupsReady = useCallback((finalisedGroups, brand) => {
-    setActiveBrand(brand);
-    setGroups(finalisedGroups);
+  // Called when user clicks a menu row in BrandPickerPage — navigate immediately then fetch
+  const handleSelectMenuRow = useCallback(async (row) => {
+    setActiveBrand({ id: row.brandId, name: row.brandName });
     setSelectedGroup(null);
+    setGroups([]);
+    setLoading(true);
     setError("");
+
+    try {
+      const records = await fetchMenuMessages(row.menuId);
+      if (records.length === 0) {
+        setError(`No messages found for menu ${row.menuId} since Jan 2025.`);
+        setLoading(false);
+        return;
+      }
+
+      const grouper = createMenuGrouper();
+      records.forEach((r) => grouper.addRow(r));
+      const finalGroups = grouper.finalize();
+      setGroups(finalGroups);
+      setSelectedGroup(finalGroups[0] ?? null);
+    } catch (err) {
+      setError(err.message ?? "Failed to fetch messages.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const handleSwitchMode = useCallback((newMode) => {
@@ -97,11 +109,8 @@ function App() {
     setGroups([]);
     setSelectedGroup(null);
     setError("");
-    if (newMode === MODE_CSV) {
-      setActiveBrand(null);
-    } else {
-      setActiveUpload(null);
-    }
+    setActiveBrand(null);
+    setActiveUpload(null);
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -120,12 +129,9 @@ function App() {
     );
   }
 
-  if (!session) {
-    return <LoginPage />;
-  }
+  if (!session) return <LoginPage />;
 
-  const showBrandPicker = mode === MODE_DB && activeBrand === null && !loading;
-  const showSummary = !showBrandPicker;
+  const showBrandPicker = mode === MODE_DB && activeBrand === null;
 
   return (
     <WeightsProvider userId={session.user.id}>
@@ -144,7 +150,6 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Mode toggle */}
             <div className="flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
               <button
                 type="button"
@@ -164,7 +169,6 @@ function App() {
               </button>
             </div>
 
-            {/* CSV upload selector — only shown in CSV mode */}
             {mode === MODE_CSV ? (
               <UploadSelector
                 session={session}
@@ -174,11 +178,10 @@ function App() {
               />
             ) : null}
 
-            {/* Active brand label in DB mode */}
             {mode === MODE_DB && activeBrand ? (
               <button
                 type="button"
-                onClick={() => { setGroups([]); setActiveBrand(null); setSelectedGroup(null); }}
+                onClick={() => { setActiveBrand(null); setGroups([]); setSelectedGroup(null); setError(""); }}
                 className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
               >
                 <Database className="h-3 w-3 text-slate-400" />
@@ -238,12 +241,8 @@ function App() {
               )}
             </div>
 
-            {changePasswordOpen && (
-              <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />
-            )}
-            {settingsOpen && (
-              <SettingsModal onClose={() => setSettingsOpen(false)} />
-            )}
+            {changePasswordOpen && <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />}
+            {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
           </div>
         </div>
       </header>
@@ -252,11 +251,22 @@ function App() {
         {error ? <EmptyState message={error} tone="danger" /> : null}
 
         {selectedGroup ? (
-          <BrandComparePage group={selectedGroup} onBack={() => setSelectedGroup(null)} />
+          <BrandComparePage group={selectedGroup} onBack={() => {
+            setSelectedGroup(null);
+            if (mode === MODE_DB) {
+              setActiveBrand(null);
+              setGroups([]);
+            }
+          }} />
         ) : showBrandPicker ? (
-          <BrandPickerPage onGroupsReady={handleDbGroupsReady} />
+          <BrandPickerPage onSelectRow={handleSelectMenuRow} />
+        ) : loading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-32">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-blue-500" />
+            <p className="text-sm text-slate-500">Loading {activeBrand?.name}…</p>
+          </div>
         ) : (
-          <SummaryTable groups={groups} loading={loading} onSelectGroup={setSelectedGroup} />
+          <SummaryTable groups={groups} loading={false} onSelectGroup={setSelectedGroup} />
         )}
       </div>
     </div>
