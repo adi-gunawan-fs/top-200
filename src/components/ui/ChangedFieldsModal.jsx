@@ -19,18 +19,80 @@ function isStructuredValue(value) {
   return value !== null && typeof value === "object";
 }
 
-function renderDiffValue(value, toneClass) {
+// Simple LCS-based word diff. Returns array of {text, type: "equal"|"removed"|"added"}
+function computeWordDiff(before, after) {
+  const tokenize = (str) => str.match(/\S+|\s+/g) || [];
+  const a = tokenize(before);
+  const b = tokenize(after);
+
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--)
+    for (let j = n - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+
+  const result = [];
+  let i = 0, j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && a[i] === b[j]) {
+      result.push({ text: a[i], type: "equal" });
+      i++; j++;
+    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
+      result.push({ text: b[j], type: "added" });
+      j++;
+    } else {
+      result.push({ text: a[i], type: "removed" });
+      i++;
+    }
+  }
+  return result;
+}
+
+function DiffText({ text, side, otherText, toneClass }) {
+  const hasChange = text !== otherText && otherText !== null && otherText !== undefined;
+  if (!hasChange) {
+    return <span className={toneClass}>{text}</span>;
+  }
+
+  const beforeStr = side === "before" ? text : otherText;
+  const afterStr = side === "after" ? text : otherText;
+  const diff = computeWordDiff(beforeStr, afterStr);
+  const relevant = side === "before" ? "removed" : "added";
+
+  return (
+    <>
+      {diff.map((part, idx) =>
+        part.type === relevant ? (
+          <mark key={idx} className="bg-yellow-300 font-bold rounded-sm px-0.5">{part.text}</mark>
+        ) : part.type === "equal" ? (
+          <span key={idx} className={toneClass}>{part.text}</span>
+        ) : null
+      )}
+    </>
+  );
+}
+
+function renderDiffValue(value, toneClass, otherValue, side) {
   if (value === null || value === undefined) {
     return <p className={`text-[11px] italic ${toneClass} opacity-40`}>empty</p>;
   }
+  const str = isStructuredValue(value) ? JSON.stringify(value, null, 2) : formatValue(value);
+  const otherStr = otherValue === null || otherValue === undefined
+    ? null
+    : isStructuredValue(otherValue) ? JSON.stringify(otherValue, null, 2) : formatValue(otherValue);
+
   if (isStructuredValue(value)) {
     return (
       <pre className={`whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
-        {JSON.stringify(value, null, 2)}
+        <DiffText text={str} side={side} otherText={otherStr} toneClass={toneClass} />
       </pre>
     );
   }
-  return <p className={`break-words text-[11px] ${toneClass}`}>{formatValue(value)}</p>;
+  return (
+    <p className={`break-words text-[11px] ${toneClass}`}>
+      <DiffText text={str} side={side} otherText={otherStr} toneClass={toneClass} />
+    </p>
+  );
 }
 
 export function ChangedFieldsModal({ item, fields, onClose }) {
@@ -58,7 +120,7 @@ export function ChangedFieldsModal({ item, fields, onClose }) {
                     </span>
                   </p>
                   <div className="rounded border border-rose-200 bg-rose-50 p-2">
-                    {renderDiffValue(field.beforeValue, "text-rose-700")}
+                    {renderDiffValue(field.beforeValue, "text-rose-700", field.afterValue, "before")}
                   </div>
                 </div>
                 <div className="p-3">
@@ -69,7 +131,7 @@ export function ChangedFieldsModal({ item, fields, onClose }) {
                     </span>
                   </p>
                   <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
-                    {renderDiffValue(field.afterValue, "text-emerald-700")}
+                    {renderDiffValue(field.afterValue, "text-emerald-700", field.beforeValue, "after")}
                   </div>
                 </div>
               </div>
