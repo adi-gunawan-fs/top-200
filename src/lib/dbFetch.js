@@ -67,6 +67,15 @@ export async function streamMessages(brandId, { onRow, onProgress } = {}) {
   return { totalRows };
 }
 
+// Fetches dishSnapshots for a given dishId created after afterDate (ISO string).
+export async function fetchDishSnapshots(dishId, afterDate) {
+  const params = new URLSearchParams({ dishId, afterDate });
+  const res = await fetch(`${API_BASE}/api/dish-snapshots?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch dish snapshots: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
 // Streams messages for every top-200 brand, builds a CSV, and saves it to Supabase.
 // onProgress({ done, brandsDone, brandsTotal, totalRows }) fires as work proceeds.
 // Returns the saved upload record.

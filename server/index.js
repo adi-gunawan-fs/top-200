@@ -135,6 +135,50 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
+// GET /api/dish-snapshots?dishId=X&afterDate=Y
+// Returns dishSnapshots for the given dishId created after the given date.
+app.get("/api/dish-snapshots", async (req, res) => {
+  const dishId = parseInt(req.query.dishId, 10);
+  const afterDate = req.query.afterDate;
+  if (!dishId) return res.status(400).json({ error: "dishId required" });
+  if (!afterDate) return res.status(400).json({ error: "afterDate required" });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         "id",
+         "dishId",
+         "type",
+         "createdAt",
+         "dishTypeId",
+         "courseTypeId",
+         "dietIds",
+         "allergenIds",
+         "mainIngredientIds",
+         "choiceIngredientIds",
+         "additionalIngredientIds",
+         "certainty",
+         "tier",
+         "areIngredientsInAgreement",
+         "miscAndChoiceCertainty",
+         "dishTypeCertainty",
+         "courseTypeCertainty",
+         "dietsCertainty",
+         "allergensCertainty",
+         "ingredientsCertainty"
+       FROM "dishSnapshots"
+       WHERE "dishId" = $1
+         AND "createdAt" > $2
+       ORDER BY "createdAt" DESC`,
+      [dishId, afterDate],
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("dish-snapshots error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });

@@ -395,6 +395,7 @@ export function compareMessages(beforeRecord, afterRecord) {
       type: "dish",
       status,
       name: afterDish?.name ?? beforeDish?.name ?? "-",
+      menuId: afterDish?.menuId ?? beforeDish?.menuId ?? null,
       menuTitleId: String(afterDish?.menuTitleId ?? beforeDish?.menuTitleId ?? ""),
       changedFields,
       changeTypeCounts: countChangeTypes(changedFields),

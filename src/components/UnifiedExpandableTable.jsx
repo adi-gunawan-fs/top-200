@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Database, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useWeights } from "../contexts/WeightsContext";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
@@ -8,6 +8,7 @@ import { Card } from "./ui/Card";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
+import { DishSnapshotsModal } from "./ui/DishSnapshotsModal";
 import { buildHierarchy, collectTitleIds } from "../utils/hierarchyUtils";
 import { getAnalysisReviewStatus, getAnalysisReviewTone } from "../utils/analysisReview";
 import {
@@ -201,6 +202,31 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
   );
 }
 
+function SnapshotsCell({ item, afterRecord }) {
+  const [open, setOpen] = useState(false);
+  if (!afterRecord || !item.menuId) return <span className="text-slate-400">-</span>;
+
+  return (
+    <>
+      <IconButton
+        title="View dish snapshots"
+        aria-label="View dish snapshots"
+        onClick={() => setOpen(true)}
+      >
+        <Database className="h-3.5 w-3.5" />
+      </IconButton>
+      {open ? (
+        <DishSnapshotsModal
+          dishId={item.menuId}
+          afterDate={afterRecord.createdAt}
+          dishName={item.name}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function UnifiedExpandableTable({
   menuTitleRows,
   dishRows,
@@ -214,6 +240,7 @@ export function UnifiedExpandableTable({
   onRunOne,
   eligibleItemKeys,
   modelNames,
+  afterRecord,
 }) {
   const { weights, difficultyThreshold } = useWeights();
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
@@ -360,6 +387,7 @@ export function UnifiedExpandableTable({
             <col className="w-[320px]" />
             <col className="w-40" />
             <col className="w-72" />
+            <col className="w-24" />
           </colgroup>
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
             <tr>
@@ -369,12 +397,13 @@ export function UnifiedExpandableTable({
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
               <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Analysis</th>
+              <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Snapshots</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
+                <td colSpan={7} className="px-3 py-4 text-xs text-slate-500">No menu title or dish changes to render.</td>
               </tr>
             ) : (
               rows.map((row) => {
@@ -389,7 +418,7 @@ export function UnifiedExpandableTable({
 
                 return (
                   <tr key={row.key} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
-                    <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
+                    <td className="px-3 py-2 font-medium text-slate-900">{row.kind === "dish" ? (item.menuId ?? item.id) : item.id}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-start gap-1.5" style={{ paddingLeft: `${indentPx}px` }}>
                         {row.kind === "menuTitle" && row.hasChildren ? (
@@ -436,6 +465,13 @@ export function UnifiedExpandableTable({
                           runningKeys={runningKeys}
                           onRunOne={onRunOne}
                         />
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.kind === "dish" ? (
+                        <SnapshotsCell item={item} afterRecord={afterRecord} />
                       ) : (
                         <span className="text-slate-400">-</span>
                       )}

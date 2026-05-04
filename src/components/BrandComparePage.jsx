@@ -560,6 +560,7 @@ function BrandComparePage({ group, onBack }) {
             onRunOne={handleRunOne}
             eligibleItemKeys={eligibleItemKeys}
             modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
+            afterRecord={afterRecord}
           />
         </div>
       ) : null}
