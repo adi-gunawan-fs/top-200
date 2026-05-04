@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { formatDate } from "../utils/formatDate";
@@ -41,6 +41,8 @@ function handleRowKey(event, callback) {
 }
 
 function SummaryTable({ groups, loading, onSelectGroup }) {
+  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "resolved" | "for_review"
+
   const rows = useMemo(() => {
     return groups.map((group) => ({
       group,
@@ -48,11 +50,44 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
     }));
   }, [groups]);
 
+  const filtered = useMemo(() => {
+    if (statusFilter === "all") return rows;
+    return rows.filter(({ comparison }) =>
+      statusFilter === "resolved" ? isResolved(comparison) : !isResolved(comparison),
+    );
+  }, [rows, statusFilter]);
+
+  const resolvedCount = useMemo(() => rows.filter(({ comparison }) => isResolved(comparison)).length, [rows]);
+  const forReviewCount = rows.length - resolvedCount;
+
   if (loading) return <EmptyState message="Parsing CSV..." />;
   if (!groups.length) return <EmptyState message="Upload a CSV file to see grouped results." />;
 
   return (
     <Card>
+      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+        {[
+          { key: "all", label: "All", count: rows.length },
+          { key: "for_review", label: "For Review", count: forReviewCount },
+          { key: "resolved", label: "Resolved", count: resolvedCount },
+        ].map(({ key, label, count }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatusFilter(key)}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              statusFilter === key
+                ? "bg-slate-900 text-white"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            }`}
+          >
+            {label}
+            <span className={`rounded px-1 py-0.5 text-[10px] font-semibold ${statusFilter === key ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+              {count}
+            </span>
+          </button>
+        ))}
+      </div>
       <div className="overflow-x-auto">
         <table className="min-w-full table-fixed border-collapse">
           <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
@@ -66,7 +101,7 @@ function SummaryTable({ groups, loading, onSelectGroup }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ group, comparison }) => {
+            {filtered.map(({ group, comparison }) => {
               const handleSelect = () => onSelectGroup?.(group);
               return (
                 <tr

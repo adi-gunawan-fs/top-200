@@ -94,7 +94,6 @@ function BrandPickerPage({ onSelectRow, session, onExportDone }) {
             <Download className="h-3.5 w-3.5" />
             {exporting ? "Exporting…" : "Export All to CSV"}
           </button>
-          <p className="text-xs text-slate-400">{filtered.length} of {rows.length} menus</p>
         </div>
       </div>
 
