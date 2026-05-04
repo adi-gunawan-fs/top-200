@@ -35,9 +35,6 @@ app.get("/api/brands", async (_req, res) => {
 // One row per INCLUDED menu across all top-200 brands, with latest autoeatMessage date.
 // Client-side pagination — returns 100 rows per page via id cursor.
 app.get("/api/overview", async (req, res) => {
-  const cursor = parseInt(req.query.cursor ?? "0", 10);
-  const pageSize = 100;
-
   try {
     const { rows } = await pool.query(
       `SELECT
@@ -50,14 +47,10 @@ app.get("/api/overview", async (req, res) => {
        INNER JOIN brands b ON b.id = m."brandId"
        WHERE b."isTop200" = true
          AND m."status" = 'INCLUDED'
-         AND m.id > $1
-       ORDER BY b.name ASC, m.id ASC
-       LIMIT $2`,
-      [cursor, pageSize],
+       ORDER BY b.name ASC, m.id ASC`,
     );
 
-    const nextCursor = rows.length === pageSize ? rows[rows.length - 1].menuId : null;
-    res.json({ rows, nextCursor });
+    res.json({ rows, nextCursor: null });
   } catch (err) {
     console.error("overview error:", err.message);
     res.status(500).json({ error: err.message });
@@ -71,24 +64,22 @@ app.get("/api/menu-messages", async (req, res) => {
   if (!menuId) return res.status(400).json({ error: "menuId required" });
 
   try {
+    // menuId here is menus.id — look up the autoeatId first, then fetch via indexed menuId column
     const { rows: menuRows } = await pool.query(
       `SELECT "autoeatId" FROM menus WHERE id = $1 AND "autoeatId" IS NOT NULL LIMIT 1`,
       [menuId],
     );
-
     if (menuRows.length === 0) return res.json({ rows: [] });
-
-    const autoeatId = String(menuRows[0].autoeatId);
 
     const { rows } = await pool.query(
       `SELECT id, "createdAt", "updatedAt", message
        FROM "autoeatMessages"
        WHERE type = 'MENU_FOR_CURATION'
          AND "createdAt" > '2025-01-01 00:00:00+00'
-         AND message -> 'menu' ->> 'id' = $1
+         AND "menuId" = $1
        ORDER BY "createdAt" DESC
        LIMIT 2`,
-      [autoeatId],
+      [menuRows[0].autoeatId],
     );
 
     res.json({ rows });
@@ -110,42 +101,30 @@ app.get("/api/messages", async (req, res) => {
   const pageSize = 500;
 
   try {
-    // Step 1: get autoeatIds for this brand's INCLUDED menus (small result, fast)
-    const { rows: menuRows } = await pool.query(
-      `SELECT "autoeatId" FROM menus
-       WHERE "brandId" = $1 AND "status" = 'INCLUDED' AND "autoeatId" IS NOT NULL`,
-      [brandId],
-    );
-
-    if (menuRows.length === 0) {
-      return res.json({ rows: [], nextCursor: null });
-    }
-
-    const autoeatIds = menuRows.map((r) => String(r.autoeatId));
-
-    // Step 2: get 2 latest autoeatMessages per autoeatId via JSON match + window function
     const { rows } = await pool.query(
       `SELECT id, "createdAt", "updatedAt", message
        FROM (
          SELECT
-           id,
-           "createdAt",
-           "updatedAt",
-           message,
+           am.id,
+           am."createdAt",
+           am."updatedAt",
+           am.message,
            ROW_NUMBER() OVER (
-             PARTITION BY message -> 'menu' ->> 'id'
-             ORDER BY "createdAt" DESC
+             PARTITION BY am."menuId"
+             ORDER BY am."createdAt" DESC
            ) AS rn
-         FROM "autoeatMessages"
-         WHERE type = 'MENU_FOR_CURATION'
-           AND "createdAt" > '2025-01-01 00:00:00+00'
-           AND message -> 'menu' ->> 'id' = ANY($1)
-           AND id > $2
+         FROM "autoeatMessages" am
+         INNER JOIN menus m ON m."autoeatId" = am."menuId"
+         WHERE am.type = 'MENU_FOR_CURATION'
+           AND am."createdAt" > '2025-01-01 00:00:00+00'
+           AND m."brandId" = $1
+           AND m."status" = 'INCLUDED'
+           AND am.id > $2
        ) ranked
        WHERE rn <= 2
        ORDER BY id ASC
        LIMIT $3`,
-      [autoeatIds, cursor, pageSize],
+      [brandId, cursor, pageSize],
     );
 
     const nextCursor = rows.length === pageSize ? rows[rows.length - 1].id : null;

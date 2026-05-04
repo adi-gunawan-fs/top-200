@@ -9,18 +9,9 @@ export async function fetchBrands() {
 // Fetches all overview rows (all top-200 INCLUDED menus with latest message date).
 // Paginates internally and returns the full flat array.
 export async function fetchOverview() {
-  const rows = [];
-  let cursor = 0;
-
-  while (true) {
-    const res = await fetch(`${API_BASE}/api/overview?cursor=${cursor}`);
-    if (!res.ok) throw new Error(`Failed to fetch overview: ${res.statusText}`);
-    const { rows: page, nextCursor } = await res.json();
-    rows.push(...page);
-    if (!nextCursor) break;
-    cursor = nextCursor;
-  }
-
+  const res = await fetch(`${API_BASE}/api/overview`);
+  if (!res.ok) throw new Error(`Failed to fetch overview: ${res.statusText}`);
+  const { rows } = await res.json();
   return rows;
 }
 
