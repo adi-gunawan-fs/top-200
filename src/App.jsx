@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, KeyRound, LogOut, Settings } from "lucide-react";
+import { ChevronDown, Database, KeyRound, LogOut, Settings, Upload } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
+import BrandPickerPage from "./components/BrandPickerPage";
 import UploadSelector from "./components/UploadSelector";
 import { Button } from "./components/ui/Button";
 import { EmptyState } from "./components/ui/EmptyState";
@@ -14,13 +15,19 @@ import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
+const MODE_CSV = "csv";
+const MODE_DB = "db";
+
 function App() {
   const [session, setSession] = useState(undefined);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
+
+  const [mode, setMode] = useState(MODE_CSV);
   const [activeUpload, setActiveUpload] = useState(null);
+  const [activeBrand, setActiveBrand] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -78,9 +85,29 @@ function App() {
     parseFile(file);
   }, [parseFile]);
 
+  const handleDbGroupsReady = useCallback((finalisedGroups, brand) => {
+    setActiveBrand(brand);
+    setGroups(finalisedGroups);
+    setSelectedGroup(null);
+    setError("");
+  }, []);
+
+  const handleSwitchMode = useCallback((newMode) => {
+    setMode(newMode);
+    setGroups([]);
+    setSelectedGroup(null);
+    setError("");
+    if (newMode === MODE_CSV) {
+      setActiveBrand(null);
+    } else {
+      setActiveUpload(null);
+    }
+  }, []);
+
   const handleSignOut = useCallback(async () => {
     await signOut();
     setActiveUpload(null);
+    setActiveBrand(null);
     setGroups([]);
     setSelectedGroup(null);
   }, []);
@@ -96,6 +123,9 @@ function App() {
   if (!session) {
     return <LoginPage />;
   }
+
+  const showBrandPicker = mode === MODE_DB && activeBrand === null && !loading;
+  const showSummary = !showBrandPicker;
 
   return (
     <WeightsProvider userId={session.user.id}>
@@ -114,12 +144,49 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <UploadSelector
-              session={session}
-              activeUploadId={activeUpload?.id ?? null}
-              onUploadSelect={handleUploadSelect}
-              onFileReady={handleFileReady}
-            />
+            {/* Mode toggle */}
+            <div className="flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+              <button
+                type="button"
+                onClick={() => handleSwitchMode(MODE_CSV)}
+                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_CSV ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              >
+                <Upload className="h-3 w-3" />
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchMode(MODE_DB)}
+                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_DB ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              >
+                <Database className="h-3 w-3" />
+                Database
+              </button>
+            </div>
+
+            {/* CSV upload selector — only shown in CSV mode */}
+            {mode === MODE_CSV ? (
+              <UploadSelector
+                session={session}
+                activeUploadId={activeUpload?.id ?? null}
+                onUploadSelect={handleUploadSelect}
+                onFileReady={handleFileReady}
+              />
+            ) : null}
+
+            {/* Active brand label in DB mode */}
+            {mode === MODE_DB && activeBrand ? (
+              <button
+                type="button"
+                onClick={() => { setGroups([]); setActiveBrand(null); setSelectedGroup(null); }}
+                className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                <Database className="h-3 w-3 text-slate-400" />
+                <span className="max-w-[160px] truncate">{activeBrand.name}</span>
+                <span className="text-slate-300">×</span>
+              </button>
+            ) : null}
+
             <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
@@ -186,6 +253,8 @@ function App() {
 
         {selectedGroup ? (
           <BrandComparePage group={selectedGroup} onBack={() => setSelectedGroup(null)} />
+        ) : showBrandPicker ? (
+          <BrandPickerPage onGroupsReady={handleDbGroupsReady} />
         ) : (
           <SummaryTable groups={groups} loading={loading} onSelectGroup={setSelectedGroup} />
         )}
