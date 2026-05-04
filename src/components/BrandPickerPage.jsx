@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ExternalLink, Search } from "lucide-react";
-import { fetchOverview } from "../lib/dbFetch";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Search } from "lucide-react";
+import { exportAllBrandsToCSV, fetchOverview } from "../lib/dbFetch";
 import { EmptyState } from "./ui/EmptyState";
 
 const PAGE_SIZE = 20;
 
-function BrandPickerPage({ onSelectRow }) {
+function BrandPickerPage({ onSelectRow, session, onExportDone }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(null); // { brandsDone, brandsTotal, totalRows }
 
   useEffect(() => {
     fetchOverview()
@@ -36,6 +38,25 @@ function BrandPickerPage({ onSelectRow }) {
     onSelectRow(row);
   };
 
+  const handleExportAll = async () => {
+    if (exporting || !session) return;
+    setExporting(true);
+    setExportProgress({ brandsDone: 0, brandsTotal: 0, totalRows: 0 });
+    try {
+      const saved = await exportAllBrandsToCSV(session.user.id, {
+        onProgress: ({ brandsDone, brandsTotal, totalRows }) => {
+          setExportProgress({ brandsDone, brandsTotal, totalRows });
+        },
+      });
+      onExportDone?.(saved);
+    } catch (err) {
+      setError(err.message ?? "Export failed.");
+    } finally {
+      setExporting(false);
+      setExportProgress(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -50,7 +71,31 @@ function BrandPickerPage({ onSelectRow }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700">Top 200 — Included Menus</h2>
-        <p className="text-xs text-slate-400">{filtered.length} of {rows.length} menus</p>
+        <div className="flex items-center gap-3">
+          {exportProgress && (
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all duration-300"
+                  style={{ width: exportProgress.brandsTotal ? `${(exportProgress.brandsDone / exportProgress.brandsTotal) * 100}%` : "0%" }}
+                />
+              </div>
+              <span className="text-[11px] text-slate-500">
+                {exportProgress.brandsDone} / {exportProgress.brandsTotal} brands
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handleExportAll}
+            disabled={exporting}
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exporting ? "Exporting…" : "Export All to CSV"}
+          </button>
+          <p className="text-xs text-slate-400">{filtered.length} of {rows.length} menus</p>
+        </div>
       </div>
 
       <div className="relative max-w-xs">

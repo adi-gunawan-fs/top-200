@@ -16,11 +16,13 @@ export async function listUploads() {
 export async function saveUpload(name, file, userId) {
   const safeName = name.trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
   const timestamp = Date.now();
-  const filePath = `${timestamp}_${safeName}.csv`;
+  const ext = file.name.endsWith(".gz") ? ".csv.gz" : ".csv";
+  const filePath = `${timestamp}_${safeName}${ext}`;
 
+  const contentType = file.name.endsWith(".gz") ? "application/gzip" : "text/csv";
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(filePath, file, { contentType: "text/csv", upsert: false });
+    .upload(filePath, file, { contentType, upsert: false });
 
   if (uploadError) throw uploadError;
 
@@ -59,5 +61,25 @@ export async function fetchCsvFile(filePath) {
     .download(filePath);
 
   if (error) throw error;
+
+  if (filePath.endsWith(".gz")) {
+    const ds = new DecompressionStream("gzip");
+    const writer = ds.writable.getWriter();
+    writer.write(await data.arrayBuffer());
+    writer.close();
+    const chunks = [];
+    const reader = ds.readable.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
+    let off = 0;
+    for (const c of chunks) { bytes.set(c, off); off += c.length; }
+    const csvName = filePath.split("/").pop().replace(/\.gz$/, "");
+    return new File([bytes], csvName, { type: "text/csv" });
+  }
+
   return new File([data], filePath.split("/").pop(), { type: "text/csv" });
 }

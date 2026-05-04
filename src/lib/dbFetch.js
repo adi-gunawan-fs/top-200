@@ -1,3 +1,5 @@
+import { saveUpload } from "./csvUploads";
+
 const API_BASE = "http://localhost:3000";
 
 export async function fetchBrands() {
@@ -63,4 +65,88 @@ export async function streamMessages(brandId, { onRow, onProgress } = {}) {
   }
 
   return { totalRows };
+}
+
+// Streams messages for every top-200 brand, builds a CSV, and saves it to Supabase.
+// onProgress({ done, brandsDone, brandsTotal, totalRows }) fires as work proceeds.
+// Returns the saved upload record.
+export async function exportAllBrandsToCSV(userId, { onProgress } = {}) {
+  const overviewRes = await fetch(`${API_BASE}/api/overview`);
+  if (!overviewRes.ok) throw new Error("Failed to fetch overview");
+  const { rows: overviewRows } = await overviewRes.json();
+
+  // Deduplicate brand IDs while preserving order
+  const seen = new Set();
+  const brands = [];
+  for (const r of overviewRows) {
+    if (!seen.has(r.brandId)) {
+      seen.add(r.brandId);
+      brands.push({ id: r.brandId, name: r.brandName });
+    }
+  }
+
+  const brandsTotal = brands.length;
+  let brandsDone = 0;
+  let totalRows = 0;
+  const csvRows = [];
+
+  // Process brands in batches of 10 in parallel
+  const BATCH = 10;
+  for (let i = 0; i < brands.length; i += BATCH) {
+    const batch = brands.slice(i, i + BATCH);
+    await Promise.all(
+      batch.map(async (brand) => {
+        await streamMessages(brand.id, {
+          onRow: (row) => {
+            csvRows.push({
+              id: row.id,
+              createdAt: row.createdAt ?? "",
+              updatedAt: row.updatedAt ?? "",
+              message: JSON.stringify(row.message),
+            });
+          },
+        });
+        brandsDone += 1;
+        totalRows = csvRows.length;
+        onProgress?.({ done: false, brandsDone, brandsTotal, totalRows });
+      }),
+    );
+  }
+
+  // Build CSV string
+  const escape = (v) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const header = "id,createdAt,updatedAt,message";
+  const body = csvRows.map((r) => [r.id, r.createdAt, r.updatedAt, r.message].map(escape).join(",")).join("\n");
+  const csvContent = `${header}\n${body}`;
+
+  const now = new Date();
+  const label = now.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const name = `All Brands — ${label}`;
+
+  // Gzip before upload — repetitive JSON compresses ~10:1, keeping well under the 50MB limit
+  const csvBytes = new TextEncoder().encode(csvContent);
+  const compressionStream = new CompressionStream("gzip");
+  const writer = compressionStream.writable.getWriter();
+  writer.write(csvBytes);
+  writer.close();
+  const compressedChunks = [];
+  const reader = compressionStream.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    compressedChunks.push(value);
+  }
+  const compressedBytes = new Uint8Array(compressedChunks.reduce((acc, c) => acc + c.length, 0));
+  let offset = 0;
+  for (const chunk of compressedChunks) { compressedBytes.set(chunk, offset); offset += chunk.length; }
+  const file = new File([compressedBytes], `${name}.csv.gz`, { type: "application/gzip" });
+
+  const saved = await saveUpload(name, file, userId);
+  onProgress?.({ done: true, brandsDone, brandsTotal, totalRows });
+  return saved;
 }

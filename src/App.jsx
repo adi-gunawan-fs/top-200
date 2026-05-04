@@ -259,7 +259,15 @@ function App() {
             }
           }} />
         ) : showBrandPicker ? (
-          <BrandPickerPage onSelectRow={handleSelectMenuRow} />
+          <BrandPickerPage
+          onSelectRow={handleSelectMenuRow}
+          session={session}
+          onExportDone={(saved) => {
+            setMode(MODE_CSV);
+            setActiveBrand(null);
+            handleUploadSelect(saved);
+          }}
+        />
         ) : loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-32">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-blue-500" />
