@@ -173,7 +173,7 @@ function AnalysisCell({ item, shortKey, job, modelNames, analysisResultsMap, run
   );
 }
 
-function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningKeys, isEligible, weights }) {
+function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningKeys, isEligible, weights, difficultyThreshold }) {
   if (!isEligible) {
     return <span className="text-slate-400">-</span>;
   }
@@ -182,7 +182,7 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
     return <span className="text-slate-400">-</span>;
   }
 
-  const status = getAnalysisReviewStatus(analysisResultsMap[shortKey], modelNames, weights);
+  const status = getAnalysisReviewStatus(analysisResultsMap[shortKey], modelNames, weights, difficultyThreshold);
   if (!status) {
     return <span className="text-slate-400">-</span>;
   }
@@ -215,7 +215,7 @@ export function UnifiedExpandableTable({
   eligibleItemKeys,
   modelNames,
 }) {
-  const { weights } = useWeights();
+  const { weights, difficultyThreshold } = useWeights();
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
   const { roots, orphanDishes } = useMemo(
     () => buildHierarchy(menuTitleRows, dishRows),
@@ -422,6 +422,7 @@ export function UnifiedExpandableTable({
                         runningKeys={runningKeys}
                         isEligible={isEligible}
                         weights={weights}
+                        difficultyThreshold={difficultyThreshold}
                       />
                     </td>
                     <td className="px-3 py-2">

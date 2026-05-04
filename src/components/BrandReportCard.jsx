@@ -20,7 +20,7 @@ function countByStatus(items) {
   return counts;
 }
 
-function buildReviewCounts(items, analysisResultsMap, modelNames, weights) {
+function buildReviewCounts(items, analysisResultsMap, modelNames, weights, difficultyThreshold) {
   const counts = {
     Resolved: 0,
     "Low Review": 0,
@@ -32,7 +32,7 @@ function buildReviewCounts(items, analysisResultsMap, modelNames, weights) {
   items.forEach((item) => {
     const shortKey = `${item.id}__${item.type}`;
     const modelResults = analysisResultsMap[shortKey];
-    const status = getAnalysisReviewStatus(modelResults, modelNames, weights);
+    const status = getAnalysisReviewStatus(modelResults, modelNames, weights, difficultyThreshold);
     if (status && status in counts) {
       counts[status] += 1;
     } else {
@@ -83,7 +83,7 @@ export function BrandReportCard({
   analysisResultsMap,
   modelNames,
 }) {
-  const { weights } = useWeights();
+  const { weights, difficultyThreshold } = useWeights();
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
 
@@ -106,8 +106,8 @@ export function BrandReportCard({
   );
 
   const reviewCounts = useMemo(
-    () => buildReviewCounts(eligibleAll, analysisResultsMap, modelNames, weights),
-    [eligibleAll, analysisResultsMap, modelNames, weights],
+    () => buildReviewCounts(eligibleAll, analysisResultsMap, modelNames, weights, difficultyThreshold),
+    [eligibleAll, analysisResultsMap, modelNames, weights, difficultyThreshold],
   );
   const relevancyCounts = useMemo(
     () => buildRelevancyCounts([...visibleMenuTitles, ...visibleDishes], selectedRelevancySet),

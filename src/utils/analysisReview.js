@@ -26,10 +26,12 @@ export function calcWeightedScore(parameterScores, weights = PARAMETER_WEIGHTS) 
   return weightedSum / totalWeight;
 }
 
-export function calcComplexity(parameterScores, weights = PARAMETER_WEIGHTS) {
+export const DEFAULT_DIFFICULTY_THRESHOLD = 5;
+
+export function calcComplexity(parameterScores, weights = PARAMETER_WEIGHTS, threshold = DEFAULT_DIFFICULTY_THRESHOLD) {
   const score = calcWeightedScore(parameterScores, weights);
   if (score == null) return null;
-  return score > 5 ? "Hard" : "Easy";
+  return score > threshold ? "Hard" : "Easy";
 }
 
 function normalizeChangeStatus(value) {
@@ -43,13 +45,13 @@ function normalizeChangeStatus(value) {
   return normalized;
 }
 
-function getComparableSignature(result, weights) {
+function getComparableSignature(result, weights, threshold) {
   if (!result || result.error) return null;
 
   const changeStatus = normalizeChangeStatus(result.change_status);
   if (!changeStatus) return null;
 
-  const complexity = calcComplexity(result.parameter_scores, weights) ?? "unknown";
+  const complexity = calcComplexity(result.parameter_scores, weights, threshold) ?? "unknown";
   return `${complexity}__${changeStatus}`;
 }
 
@@ -60,9 +62,9 @@ function deriveStatus(changeStatus, complexity) {
   return complexity === "Hard" ? "Critical Review" : "Low Review";
 }
 
-export function getAnalysisReviewStatus(modelResults, modelNames = [], weights = PARAMETER_WEIGHTS) {
+export function getAnalysisReviewStatus(modelResults, modelNames = [], weights = PARAMETER_WEIGHTS, threshold = DEFAULT_DIFFICULTY_THRESHOLD) {
   const signatures = modelNames
-    .map((name) => getComparableSignature(modelResults?.[name], weights))
+    .map((name) => getComparableSignature(modelResults?.[name], weights, threshold))
     .filter(Boolean);
 
   if (modelNames.length === 0 || signatures.length !== modelNames.length) {
@@ -73,7 +75,7 @@ export function getAnalysisReviewStatus(modelResults, modelNames = [], weights =
 
   const result = modelResults?.[modelNames[0]];
   const changeStatus = normalizeChangeStatus(result?.change_status);
-  const complexity = calcComplexity(result?.parameter_scores, weights);
+  const complexity = calcComplexity(result?.parameter_scores, weights, threshold);
   return deriveStatus(changeStatus, complexity);
 }
 

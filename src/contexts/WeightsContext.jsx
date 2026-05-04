@@ -1,19 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { PARAMETER_WEIGHTS } from "../utils/analysisReview";
-import { fetchWeights, saveWeights } from "../lib/appSettings";
+import { DEFAULT_DIFFICULTY_THRESHOLD, PARAMETER_WEIGHTS } from "../utils/analysisReview";
+import { fetchSettings, saveSettings } from "../lib/appSettings";
 
 const WeightsContext = createContext(null);
 
 export function WeightsProvider({ userId, children }) {
   const [weights, setWeights] = useState({ ...PARAMETER_WEIGHTS });
+  const [difficultyThreshold, setDifficultyThreshold] = useState(DEFAULT_DIFFICULTY_THRESHOLD);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
-    fetchWeights(userId)
-      .then((stored) => {
+    fetchSettings(userId)
+      .then(({ weights: stored, difficultyThreshold: storedThreshold }) => {
         if (stored && Object.keys(stored).length > 0) {
           setWeights({ ...PARAMETER_WEIGHTS, ...stored });
+        }
+        if (storedThreshold != null) {
+          setDifficultyThreshold(storedThreshold);
         }
       })
       .catch(() => {})
@@ -23,20 +27,28 @@ export function WeightsProvider({ userId, children }) {
   const updateWeights = useCallback((newWeights) => {
     setWeights(newWeights);
     if (userId) {
-      saveWeights(userId, newWeights).catch(() => {});
+      saveSettings(userId, newWeights, difficultyThreshold).catch(() => {});
     }
-  }, [userId]);
+  }, [userId, difficultyThreshold]);
+
+  const updateDifficultyThreshold = useCallback((newThreshold) => {
+    setDifficultyThreshold(newThreshold);
+    if (userId) {
+      saveSettings(userId, weights, newThreshold).catch(() => {});
+    }
+  }, [userId, weights]);
 
   const resetWeights = useCallback(() => {
     const defaults = { ...PARAMETER_WEIGHTS };
     setWeights(defaults);
+    setDifficultyThreshold(DEFAULT_DIFFICULTY_THRESHOLD);
     if (userId) {
-      saveWeights(userId, defaults).catch(() => {});
+      saveSettings(userId, defaults, DEFAULT_DIFFICULTY_THRESHOLD).catch(() => {});
     }
   }, [userId]);
 
   return (
-    <WeightsContext.Provider value={{ weights, updateWeights, resetWeights, loaded }}>
+    <WeightsContext.Provider value={{ weights, updateWeights, difficultyThreshold, updateDifficultyThreshold, resetWeights, loaded }}>
       {children}
     </WeightsContext.Provider>
   );

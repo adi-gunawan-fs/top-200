@@ -2,7 +2,7 @@ import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { Modal } from "./Modal";
 import { Button } from "./Button";
-import { PARAMETER_WEIGHTS } from "../../utils/analysisReview";
+import { DEFAULT_DIFFICULTY_THRESHOLD, PARAMETER_WEIGHTS } from "../../utils/analysisReview";
 import { useWeights } from "../../contexts/WeightsContext";
 
 const LABELS = {
@@ -26,18 +26,17 @@ function fromPct(pct) {
   return Math.round(pct) / 100;
 }
 
-function totalPct(weights) {
-  return Math.round(Object.values(weights).reduce((s, v) => s + v * 100, 0));
-}
-
 export function SettingsModal({ onClose }) {
-  const { weights, updateWeights, resetWeights } = useWeights();
+  const { weights, updateWeights, difficultyThreshold, updateDifficultyThreshold, resetWeights } = useWeights();
   const [draft, setDraft] = useState(() =>
     Object.fromEntries(Object.entries(weights).map(([k, v]) => [k, pct(v)]))
   );
+  const [draftThreshold, setDraftThreshold] = useState(difficultyThreshold);
 
   const total = Object.values(draft).reduce((s, v) => s + (Number(v) || 0), 0);
   const totalOk = Math.round(total) === 100;
+  const thresholdOk = draftThreshold !== "" && Number(draftThreshold) >= 0 && Number(draftThreshold) <= 10;
+  const canSave = totalOk && thresholdOk;
 
   function handleChange(key, raw) {
     setDraft((prev) => ({ ...prev, [key]: raw === "" ? "" : Number(raw) }));
@@ -46,20 +45,23 @@ export function SettingsModal({ onClose }) {
   function handleReset() {
     resetWeights();
     setDraft(Object.fromEntries(Object.entries(PARAMETER_WEIGHTS).map(([k, v]) => [k, pct(v)])));
+    setDraftThreshold(DEFAULT_DIFFICULTY_THRESHOLD);
   }
 
   function handleSave() {
     const newWeights = Object.fromEntries(
       Object.entries(draft).map(([k, v]) => [k, fromPct(Number(v) || 0)])
     );
+    const newThreshold = Number(draftThreshold);
     updateWeights(newWeights);
+    updateDifficultyThreshold(newThreshold);
     onClose();
   }
 
   return (
     <Modal
       title="Settings"
-      subtitle="Adjust parameter weights used for complexity scoring"
+      subtitle="Adjust parameter weights and difficulty threshold for complexity scoring"
       onClose={onClose}
       size="md"
       footer={
@@ -71,13 +73,35 @@ export function SettingsModal({ onClose }) {
           <Button variant="outline" tone="neutral" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="solid" tone="info" onClick={handleSave} disabled={!totalOk}>
+          <Button variant="solid" tone="info" onClick={handleSave} disabled={!canSave}>
             Save
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5 p-4">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Difficulty Threshold
+          </p>
+          <div className="flex items-center gap-3">
+            <span className="w-44 shrink-0 text-xs text-slate-600">Hard if score &gt;</span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              step={0.1}
+              value={draftThreshold}
+              onChange={(e) => setDraftThreshold(e.target.value === "" ? "" : Number(e.target.value))}
+              className="w-20 rounded border border-slate-300 bg-white px-2 py-1 text-right text-xs text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            <span className="text-xs text-slate-400">/ 10</span>
+            {!thresholdOk && (
+              <span className="text-xs text-amber-600">Must be between 0 and 10</span>
+            )}
+          </div>
+        </div>
+
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             Parameter Weights

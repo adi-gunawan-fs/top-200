@@ -68,7 +68,7 @@ function InputPanel({ item }) {
   );
 }
 
-function ModelPanel({ name, result, weights }) {
+function ModelPanel({ name, result, weights, difficultyThreshold }) {
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
@@ -85,7 +85,7 @@ function ModelPanel({ name, result, weights }) {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Output</p>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(() => {
-                  const complexity = calcComplexity(result.parameter_scores, weights);
+                  const complexity = calcComplexity(result.parameter_scores, weights, difficultyThreshold);
                   const normalizedChangeStatus = String(result.change_status ?? "").trim().toUpperCase();
                   const changeStatusTone = CHANGE_STATUS_TONE[normalizedChangeStatus] ?? "neutral";
                   return (
@@ -165,7 +165,7 @@ function ModelPanel({ name, result, weights }) {
 
 export function AnalysisCompareModal({ itemLabel, itemId, item, modelNames, modelResults, onClose }) {
   const panelRef = useRef(null);
-  const { weights } = useWeights();
+  const { weights, difficultyThreshold } = useWeights();
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -217,7 +217,7 @@ export function AnalysisCompareModal({ itemLabel, itemId, item, modelNames, mode
           )}
           {modelNames.map((name) => (
             <div key={name} className="overflow-hidden">
-              <ModelPanel name={name} result={modelResults[name]} weights={weights} />
+              <ModelPanel name={name} result={modelResults[name]} weights={weights} difficultyThreshold={difficultyThreshold} />
             </div>
           ))}
         </div>
