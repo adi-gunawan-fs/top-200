@@ -336,6 +336,15 @@ function BrandComparePage({ group, onBack }) {
   async function handleCancelBulkRun(batchId) {
     try {
       await cancelBulkRun(batchId);
+      setAnalysisJobsMap((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((key) => {
+          if (isJobRunning(next[key]?.status)) {
+            next[key] = { ...next[key], status: "cancelled" };
+          }
+        });
+        return next;
+      });
       const [resultRows, jobRows, bulkRunRows] = await Promise.all([
         fetchAnalysisResults(beforeId, afterId),
         fetchAnalysisJobs(beforeId, afterId),

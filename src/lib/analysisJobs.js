@@ -19,7 +19,7 @@ export async function cancelBulkRun(batchId) {
     .from(TABLE)
     .update({ status: "cancelled", completed_at: new Date().toISOString() })
     .eq("batch_id", batchId)
-    .eq("status", "pending");
+    .in("status", ["pending", "processing"]);
 
   if (jobsError) throw jobsError;
 
