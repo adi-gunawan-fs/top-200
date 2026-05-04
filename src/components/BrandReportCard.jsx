@@ -127,9 +127,24 @@ export function BrandReportCard({
         <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2 lg:grid-cols-4">
           <ReportSection title={`Analysis Review (${totalAnalyzed}/${totalEligible})`}>
             {REVIEW_STATUSES.map((status) => (
-              <StatRow key={status} label={status} value={reviewCounts[status]} />
+              <StatRow
+                key={status}
+                label={status}
+                value={
+                  totalEligible > 0
+                    ? `${reviewCounts[status]} (${((reviewCounts[status] / totalEligible) * 100).toFixed(2)}%)`
+                    : reviewCounts[status]
+                }
+              />
             ))}
-            <StatRow label="Not Analyzed" value={reviewCounts["Not Analyzed"]} />
+            <StatRow
+              label="Not Analyzed"
+              value={
+                totalEligible > 0
+                  ? `${reviewCounts["Not Analyzed"]} (${((reviewCounts["Not Analyzed"] / totalEligible) * 100).toFixed(2)}%)`
+                  : reviewCounts["Not Analyzed"]
+              }
+            />
           </ReportSection>
 
           <ReportSection title={`Field Relevancy (${totalRelevancy})`}>
@@ -138,15 +153,31 @@ export function BrandReportCard({
           </ReportSection>
 
           <ReportSection title={`Menu Titles (${visibleMenuTitles.length})`}>
-            <StatRow label="New" value={menuTitleStatusCounts.new} />
-            <StatRow label="Updated" value={menuTitleStatusCounts.updated} />
-            <StatRow label="Deleted" value={menuTitleStatusCounts.deleted} />
+            {["new", "updated", "deleted"].map((status) => (
+              <StatRow
+                key={status}
+                label={status.charAt(0).toUpperCase() + status.slice(1)}
+                value={
+                  visibleMenuTitles.length > 0
+                    ? `${menuTitleStatusCounts[status]} (${((menuTitleStatusCounts[status] / visibleMenuTitles.length) * 100).toFixed(2)}%)`
+                    : menuTitleStatusCounts[status]
+                }
+              />
+            ))}
           </ReportSection>
 
           <ReportSection title={`Dishes (${visibleDishes.length})`}>
-            <StatRow label="New" value={dishStatusCounts.new} />
-            <StatRow label="Updated" value={dishStatusCounts.updated} />
-            <StatRow label="Deleted" value={dishStatusCounts.deleted} />
+            {["new", "updated", "deleted"].map((status) => (
+              <StatRow
+                key={status}
+                label={status.charAt(0).toUpperCase() + status.slice(1)}
+                value={
+                  visibleDishes.length > 0
+                    ? `${dishStatusCounts[status]} (${((dishStatusCounts[status] / visibleDishes.length) * 100).toFixed(2)}%)`
+                    : dishStatusCounts[status]
+                }
+              />
+            ))}
           </ReportSection>
         </div>
       </Card.Body>
