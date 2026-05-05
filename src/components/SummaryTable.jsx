@@ -41,7 +41,7 @@ function handleRowKey(event, callback) {
 }
 
 function SummaryTable({ groups, loading, onSelectGroup }) {
-  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "resolved" | "for_review"
+  const [statusFilter, setStatusFilter] = useState("for_review"); // "all" | "resolved" | "for_review"
 
   const rows = useMemo(() => {
     return groups.map((group) => ({
