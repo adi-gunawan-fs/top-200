@@ -1,5 +1,22 @@
 import { getFieldRelevancy, shouldHideChangedField } from "./filterUtils";
 
+const TEXT_ONLY_FIELDS = new Set(["addons", "nutritions", "allergens", "diets", "miscInfo"]);
+
+function extractTextValue(path, value) {
+  const root = path.split(/[.[]/)[0];
+  if (!TEXT_ONLY_FIELDS.has(root)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const texts = value.map((item) => (item && typeof item === "object" ? item.text ?? item.innerText ?? null : item)).filter((t) => t != null);
+    return texts.length === 1 ? texts[0] : texts.length > 1 ? texts.join("\n") : null;
+  }
+  if (value && typeof value === "object") {
+    return value.text ?? value.innerText ?? null;
+  }
+  return value;
+}
+
 function normalizeExportValue(value) {
   return value === undefined ? null : value;
 }
@@ -37,7 +54,12 @@ function buildChangeField(fields, versionKey) {
       return;
     }
 
-    out[path] = normalizeExportValue(rawValue);
+    const extracted = extractTextValue(path, rawValue);
+    if (isExportPlaceholder(extracted)) {
+      return;
+    }
+
+    out[path] = normalizeExportValue(extracted);
   });
 
   return out;
