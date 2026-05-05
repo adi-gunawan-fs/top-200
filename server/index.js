@@ -146,30 +146,57 @@ app.get("/api/dish-snapshots", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         "id",
-         "dishId",
-         "type",
-         "createdAt",
-         "dishTypeId",
-         "courseTypeId",
-         "dietIds",
-         "allergenIds",
-         "mainIngredientIds",
-         "choiceIngredientIds",
-         "additionalIngredientIds",
-         "certainty",
-         "tier",
-         "areIngredientsInAgreement",
-         "miscAndChoiceCertainty",
-         "dishTypeCertainty",
-         "courseTypeCertainty",
-         "dietsCertainty",
-         "allergensCertainty",
-         "ingredientsCertainty"
-       FROM "dishSnapshots"
-       WHERE "dishId" = $1
-         AND "createdAt" > $2
-       ORDER BY "createdAt" DESC`,
+         ds."id",
+         ds."dishId",
+         ds."type",
+         ds."createdAt",
+         a.name                           AS "dishType",
+         b.name                           AS "courseType",
+         diets_agg.names                  AS "diets",
+         allergens_agg.names              AS "allergens",
+         main_ing_agg.names               AS "mainIngredients",
+         choice_ing_agg.names             AS "choiceIngredients",
+         additional_ing_agg.names         AS "additionalIngredients",
+         ds."certainty",
+         ds."tier",
+         ds."areIngredientsInAgreement",
+         ds."miscAndChoiceCertainty",
+         ds."dishTypeCertainty",
+         ds."courseTypeCertainty",
+         ds."dietsCertainty",
+         ds."allergensCertainty",
+         ds."ingredientsCertainty"
+       FROM "dishSnapshots" ds
+       LEFT JOIN "dishTypes" a ON a.id = ds."dishTypeId"
+       LEFT JOIN "courseTypes" b ON b.id = ds."courseTypeId"
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(d.name ORDER BY d.name) AS names
+         FROM UNNEST(ds."dietIds") uid
+         LEFT JOIN "diets" d ON d.id = uid
+       ) diets_agg ON true
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(al.name ORDER BY al.name) AS names
+         FROM UNNEST(ds."allergenIds") uaid
+         LEFT JOIN "allergens" al ON al.id = uaid
+       ) allergens_agg ON true
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(i.name ORDER BY i.name) AS names
+         FROM UNNEST(ds."mainIngredientIds") umid
+         LEFT JOIN "ingredients" i ON i.id = umid
+       ) main_ing_agg ON true
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(i.name ORDER BY i.name) AS names
+         FROM UNNEST(ds."choiceIngredientIds") ucid
+         LEFT JOIN "ingredients" i ON i.id = ucid
+       ) choice_ing_agg ON true
+       LEFT JOIN LATERAL (
+         SELECT ARRAY_AGG(i.name ORDER BY i.name) AS names
+         FROM UNNEST(ds."additionalIngredientIds") uaid
+         LEFT JOIN "ingredients" i ON i.id = uaid
+       ) additional_ing_agg ON true
+       WHERE ds."dishId" = $1
+         AND ds."createdAt" > $2
+       ORDER BY ds."createdAt" DESC`,
       [dishId, afterDate],
     );
     res.json({ rows });

@@ -204,7 +204,7 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
 
 function SnapshotsCell({ item, afterRecord }) {
   const [open, setOpen] = useState(false);
-  if (!afterRecord || !item.menuId) return <span className="text-slate-400">-</span>;
+  if (!afterRecord) return <span className="text-slate-400">-</span>;
 
   return (
     <>
@@ -217,7 +217,7 @@ function SnapshotsCell({ item, afterRecord }) {
       </IconButton>
       {open ? (
         <DishSnapshotsModal
-          dishId={item.menuId}
+          dishId={item.id}
           afterDate={afterRecord.createdAt}
           dishName={item.name}
           onClose={() => setOpen(false)}
@@ -418,7 +418,7 @@ export function UnifiedExpandableTable({
 
                 return (
                   <tr key={row.key} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
-                    <td className="px-3 py-2 font-medium text-slate-900">{row.kind === "dish" ? (item.menuId ?? item.id) : item.id}</td>
+                    <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-start gap-1.5" style={{ paddingLeft: `${indentPx}px` }}>
                         {row.kind === "menuTitle" && row.hasChildren ? (

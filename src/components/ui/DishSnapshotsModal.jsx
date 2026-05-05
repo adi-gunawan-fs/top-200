@@ -7,13 +7,13 @@ const SNAPSHOT_COLUMNS = [
   { key: "id", label: "ID" },
   { key: "type", label: "Type" },
   { key: "createdAt", label: "Created At" },
-  { key: "dishTypeId", label: "Dish Type" },
-  { key: "courseTypeId", label: "Course Type" },
-  { key: "dietIds", label: "Diet IDs" },
-  { key: "allergenIds", label: "Allergen IDs" },
-  { key: "mainIngredientIds", label: "Main Ingredient IDs" },
-  { key: "choiceIngredientIds", label: "Choice Ingredient IDs" },
-  { key: "additionalIngredientIds", label: "Additional Ingredient IDs" },
+  { key: "dishType", label: "Dish Type" },
+  { key: "courseType", label: "Course Type" },
+  { key: "diets", label: "Diets" },
+  { key: "allergens", label: "Allergens" },
+  { key: "mainIngredients", label: "Main Ingredients" },
+  { key: "choiceIngredients", label: "Choice Ingredients" },
+  { key: "additionalIngredients", label: "Additional Ingredients" },
   { key: "certainty", label: "Certainty" },
   { key: "tier", label: "Tier" },
   { key: "areIngredientsInAgreement", label: "Ingredients Agreement" },
@@ -60,7 +60,7 @@ export function DishSnapshotsModal({ dishId, afterDate, dishName, onClose }) {
       onClose={onClose}
       size="xl"
       title={`Dish Snapshots — ${dishName || dishId}`}
-      subtitle={`Dish menu ID ${dishId} · snapshots after ${new Date(afterDate).toLocaleString()}`}
+      subtitle={`Dish ID ${dishId} · snapshots after ${new Date(afterDate).toLocaleString()}`}
     >
       <div className="p-4">
         {error ? (
