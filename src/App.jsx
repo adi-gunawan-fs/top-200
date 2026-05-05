@@ -137,7 +137,7 @@ function App() {
     <WeightsProvider userId={session.user.id}>
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
-        <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between gap-4 px-4">
+        <div className="flex h-14 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-900">
               <span className="text-[11px] font-semibold text-white">T2</span>
@@ -247,7 +247,7 @@ function App() {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-screen-2xl flex-col gap-4 p-4">
+      <div className="flex flex-col gap-4 p-4">
         {error ? <EmptyState message={error} tone="danger" /> : null}
 
         {selectedGroup ? (
