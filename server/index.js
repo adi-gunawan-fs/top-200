@@ -135,12 +135,13 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
-// GET /api/dish-snapshots?dishId=X&afterDate=Y
-// Returns dishSnapshots for the given dishId created after the given date.
+// GET /api/dish-snapshots?autoeatDishId=X&afterDate=Y
+// Returns dishSnapshots for the given autoeat dish ID created after the given date.
+// Resolves: autoeatDishId -> dishes.autoeatId -> dishes.id -> dishSnapshots.dishId
 app.get("/api/dish-snapshots", async (req, res) => {
-  const dishId = parseInt(req.query.dishId, 10);
+  const autoeatDishId = parseInt(req.query.dishId, 10);
   const afterDate = req.query.afterDate;
-  if (!dishId) return res.status(400).json({ error: "dishId required" });
+  if (!autoeatDishId) return res.status(400).json({ error: "dishId required" });
   if (!afterDate) return res.status(400).json({ error: "afterDate required" });
 
   try {
@@ -166,7 +167,8 @@ app.get("/api/dish-snapshots", async (req, res) => {
          ds."dietsCertainty",
          ds."allergensCertainty",
          ds."ingredientsCertainty"
-       FROM "dishSnapshots" ds
+       FROM "dishes" dsh
+       JOIN "dishSnapshots" ds ON ds."dishId" = dsh."id"
        LEFT JOIN "dishTypes" a ON a.id = ds."dishTypeId"
        LEFT JOIN "courseTypes" b ON b.id = ds."courseTypeId"
        LEFT JOIN LATERAL (
@@ -194,10 +196,10 @@ app.get("/api/dish-snapshots", async (req, res) => {
          FROM UNNEST(ds."additionalIngredientIds") uaid
          LEFT JOIN "ingredients" i ON i.id = uaid
        ) additional_ing_agg ON true
-       WHERE ds."dishId" = $1
+       WHERE dsh."autoeatId" = $1
          AND ds."createdAt" > $2
        ORDER BY ds."createdAt" DESC`,
-      [dishId, afterDate],
+      [autoeatDishId, afterDate],
     );
     res.json({ rows });
   } catch (err) {
