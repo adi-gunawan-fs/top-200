@@ -2,6 +2,22 @@ import { getFieldRelevancy, shouldHideChangedField } from "./filterUtils";
 
 const TEXT_ONLY_FIELDS = new Set(["addons", "nutritions", "allergens", "diets", "miscInfo"]);
 
+function cleanText(str) {
+  if (typeof str !== "string") return str;
+  return str
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\n/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function extractTextValue(path, value) {
   const root = path.split(/[.[]/)[0];
   if (!TEXT_ONLY_FIELDS.has(root)) {
@@ -9,12 +25,13 @@ function extractTextValue(path, value) {
   }
   if (Array.isArray(value)) {
     const texts = value.map((item) => (item && typeof item === "object" ? item.text ?? item.innerText ?? null : item)).filter((t) => t != null);
-    return texts.length === 1 ? texts[0] : texts.length > 1 ? texts.join("\n") : null;
+    const joined = texts.length === 1 ? texts[0] : texts.length > 1 ? texts.join(" ") : null;
+    return cleanText(joined);
   }
   if (value && typeof value === "object") {
-    return value.text ?? value.innerText ?? null;
+    return cleanText(value.text ?? value.innerText ?? null);
   }
-  return value;
+  return cleanText(value);
 }
 
 function normalizeExportValue(value) {
