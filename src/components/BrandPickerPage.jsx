@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import { exportAllBrandsToCSV, fetchOverview } from "../lib/dbFetch";
 import { EmptyState } from "./ui/EmptyState";
 
@@ -26,9 +26,7 @@ function BrandPickerPage({ onSelectRow, session, onExportDone }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter(
-      (r) => r.brandName.toLowerCase().includes(q) || String(r.autoeatId).includes(q),
-    );
+    return rows.filter((r) => r.brandName.toLowerCase().includes(q));
   }, [rows, search]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -103,7 +101,7 @@ function BrandPickerPage({ onSelectRow, session, onExportDone }) {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search brand or autoeat ID…"
+          placeholder="Search brand name…"
           className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
         />
       </div>
@@ -113,15 +111,13 @@ function BrandPickerPage({ onSelectRow, session, onExportDone }) {
           <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
               <th className="w-28 px-3 py-2.5">Menu ID</th>
-              <th className="w-32 px-3 py-2.5">Autoeat ID</th>
-              <th className="w-48 px-3 py-2.5">Brand Name</th>
-              <th className="px-3 py-2.5">Menu URL</th>
+              <th className="px-3 py-2.5">Brand Name</th>
             </tr>
           </thead>
           <tbody>
             {paginated.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">No menus match your search.</td>
+                <td colSpan={2} className="px-4 py-6 text-center text-slate-400">No menus match your search.</td>
               </tr>
             ) : paginated.map((row) => (
                 <tr
@@ -129,26 +125,8 @@ function BrandPickerPage({ onSelectRow, session, onExportDone }) {
                   onClick={() => handleSelectRow(row)}
                   className="cursor-pointer border-b border-slate-100 last:border-b-0 text-slate-700 hover:bg-slate-50"
                 >
-                  <td className="px-3 py-2 font-medium text-slate-900">
-                    {row.menuId}
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">{row.autoeatId ?? "—"}</td>
+                  <td className="px-3 py-2 font-medium text-slate-900">{row.menuId}</td>
                   <td className="px-3 py-2 font-medium">{row.brandName}</td>
-                  <td className="max-w-0 truncate px-3 py-2">
-                    {row.menuUrl ? (
-                      <a
-                        href={row.menuUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex max-w-full items-center gap-1 text-blue-600 hover:underline"
-                        title={row.menuUrl}
-                      >
-                        <span className="truncate">{row.menuUrl}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
-                    ) : "—"}
-                  </td>
                 </tr>
             ))}
           </tbody>

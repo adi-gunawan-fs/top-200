@@ -14,15 +14,30 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+if (!process.env.BRAND_LIST) {
+  console.error("Missing BRAND_LIST in environment variables.");
+  process.exit(1);
+}
+
+const BRAND_IDS = process.env.BRAND_LIST.split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean);
+
 const app = express();
 app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
 
-// GET /api/brands — all isTop200 brands
+// GET /api/brands — all brands in BRAND_LIST
 app.get("/api/brands", async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name FROM brands WHERE "isTop200" = true ORDER BY name ASC`,
+      `SELECT b.id, b.name
+       FROM menus m
+       INNER JOIN brands b ON b.id = m."brandId"
+       WHERE m."autoeatId" = ANY($1)
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+       GROUP BY b.id, b.name
+       ORDER BY b.name ASC`,
+      [BRAND_IDS],
     );
     res.json(rows);
   } catch (err) {
@@ -31,10 +46,9 @@ app.get("/api/brands", async (_req, res) => {
   }
 });
 
-// GET /api/overview?cursor=0
-// One row per INCLUDED menu across all top-200 brands, with latest autoeatMessage date.
-// Client-side pagination — returns 100 rows per page via id cursor.
-app.get("/api/overview", async (req, res) => {
+// GET /api/overview
+// One row per INCLUDED+published menu whose autoeatId is in BRAND_LIST.
+app.get("/api/overview", async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
@@ -45,9 +59,11 @@ app.get("/api/overview", async (req, res) => {
          b.name      AS "brandName"
        FROM menus m
        INNER JOIN brands b ON b.id = m."brandId"
-       WHERE b."isTop200" = true
+       WHERE m."autoeatId" = ANY($1)
          AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
        ORDER BY b.name ASC, m.id ASC`,
+      [BRAND_IDS],
     );
 
     res.json({ rows, nextCursor: null });
