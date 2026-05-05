@@ -95,12 +95,16 @@ export function filterHierarchyByStatus(roots, orphanDishes, selectedStatuses) {
   };
 }
 
+function passesRelevancyFilter(item, selectedRelevancies) {
+  return item?.status === "unchanged" || hasVisibleChangedFields(item, selectedRelevancies);
+}
+
 function filterHierarchyNodeByRelevancy(node, selectedRelevancies) {
   const filteredChildren = node.children
     .map((child) => filterHierarchyNodeByRelevancy(child, selectedRelevancies))
     .filter(Boolean);
-  const filteredDishes = node.dishes.filter((dish) => hasVisibleChangedFields(dish, selectedRelevancies));
-  const includeSelf = hasVisibleChangedFields(node.item, selectedRelevancies);
+  const filteredDishes = node.dishes.filter((dish) => passesRelevancyFilter(dish, selectedRelevancies));
+  const includeSelf = passesRelevancyFilter(node.item, selectedRelevancies);
   const keepAsContext = !includeSelf && (filteredChildren.length > 0 || filteredDishes.length > 0);
 
   if (!includeSelf && !keepAsContext) {
@@ -120,6 +124,6 @@ export function filterHierarchyByRelevancy(roots, orphanDishes, selectedRelevanc
     roots: roots
       .map((node) => filterHierarchyNodeByRelevancy(node, selectedRelevancies))
       .filter(Boolean),
-    orphanDishes: orphanDishes.filter((dish) => hasVisibleChangedFields(dish, selectedRelevancies)),
+    orphanDishes: orphanDishes.filter((dish) => passesRelevancyFilter(dish, selectedRelevancies)),
   };
 }

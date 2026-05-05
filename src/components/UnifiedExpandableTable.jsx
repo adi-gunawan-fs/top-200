@@ -227,10 +227,12 @@ function SnapshotsCell({ item, afterRecord }) {
   );
 }
 
-// Collect all menu titles in depth-first order (flattened hierarchy)
+// Collect all menu titles in depth-first order (flattened hierarchy), skipping context-only nodes
 function flattenTitles(nodes, depth = 0, out = []) {
   nodes.forEach((node) => {
-    out.push({ node, depth });
+    if (!node.contextOnly) {
+      out.push({ node, depth });
+    }
     flattenTitles(node.children, depth + 1, out);
   });
   return out;
@@ -465,7 +467,7 @@ function DishesTable({
         </button>
       </div>
     )}
-    <div className="max-h-[60vh] overflow-auto">
+    <div className="max-h-[80vh] overflow-auto overscroll-y-contain">
       <table className="min-w-full table-fixed border-collapse">
         <colgroup>
           <col className="w-36" />
@@ -506,7 +508,6 @@ function DishesTable({
                   <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-start gap-1.5">
-                      <span className="inline-flex h-4 w-4 items-center justify-center text-slate-300">•</span>
                       <span className="break-words">{item.name || "-"}</span>
                     </div>
                   </td>
