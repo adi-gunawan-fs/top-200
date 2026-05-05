@@ -72,16 +72,30 @@ function DiffText({ text, side, otherText, toneClass }) {
   );
 }
 
-function renderDiffValue(value, toneClass, otherValue, side) {
+const TEXT_ONLY_FIELDS = new Set(["addons", "nutritions", "allergens", "diets", "miscInfo"]);
+
+function extractFieldText(path, value) {
+  const root = (path ?? "").split(/[.[]/)[0];
+  if (!TEXT_ONLY_FIELDS.has(root)) return value;
+  if (Array.isArray(value)) {
+    const texts = value.map((item) => (item && typeof item === "object" ? item.text ?? item.innerText ?? null : item)).filter((t) => t != null);
+    return texts.length === 1 ? texts[0] : texts.length > 1 ? texts.join("\n") : null;
+  }
+  if (value && typeof value === "object") return value.text ?? value.innerText ?? null;
+  return value;
+}
+
+function renderDiffValue(value, toneClass, otherValue, side, path) {
   if (value === null || value === undefined) {
     return <p className={`text-[11px] italic ${toneClass} opacity-40`}>empty</p>;
   }
-  const str = isStructuredValue(value) ? JSON.stringify(value, null, 2) : formatValue(value);
-  const otherStr = otherValue === null || otherValue === undefined
-    ? null
-    : isStructuredValue(otherValue) ? JSON.stringify(otherValue, null, 2) : formatValue(otherValue);
+  const simplify = (v) => extractFieldText(path, v);
+  const stringify = (v) => JSON.stringify(v, null, 2).replace(/\\n/g, "\n");
+  const coerce = (v) => { const s = simplify(v); return isStructuredValue(s) ? stringify(s) : formatValue(s); };
+  const str = coerce(value);
+  const otherStr = otherValue === null || otherValue === undefined ? null : coerce(otherValue);
 
-  if (isStructuredValue(value)) {
+  if (isStructuredValue(simplify(value))) {
     return (
       <pre className={`whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
         <DiffText text={str} side={side} otherText={otherStr} toneClass={toneClass} />
@@ -120,7 +134,7 @@ export function ChangedFieldsModal({ item, fields, onClose }) {
                     </span>
                   </p>
                   <div className="rounded border border-rose-200 bg-rose-50 p-2">
-                    {renderDiffValue(field.beforeValue, "text-rose-700", field.afterValue, "before")}
+                    {renderDiffValue(field.beforeValue, "text-rose-700", field.afterValue, "before", field.path)}
                   </div>
                 </div>
                 <div className="p-3">
@@ -131,7 +145,7 @@ export function ChangedFieldsModal({ item, fields, onClose }) {
                     </span>
                   </p>
                   <div className="rounded border border-emerald-200 bg-emerald-50 p-2">
-                    {renderDiffValue(field.afterValue, "text-emerald-700", field.beforeValue, "after")}
+                    {renderDiffValue(field.afterValue, "text-emerald-700", field.beforeValue, "after", field.path)}
                   </div>
                 </div>
               </div>

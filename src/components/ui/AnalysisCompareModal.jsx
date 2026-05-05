@@ -34,10 +34,14 @@ function CopyButton({ text, tone }) {
   );
 }
 
+function prettyExport(data) {
+  return JSON.stringify(data, null, 2).replace(/\\n/g, "\n");
+}
+
 function InputPanel({ item }) {
   const exportData = toBeforeAfterExport(item);
-  const beforeText = JSON.stringify(exportData.before, null, 2);
-  const afterText = JSON.stringify(exportData.after, null, 2);
+  const beforeText = prettyExport(exportData.before);
+  const afterText = prettyExport(exportData.after);
 
   return (
     <div className="flex h-full flex-col">
