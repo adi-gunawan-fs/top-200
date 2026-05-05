@@ -35,7 +35,7 @@ function CopyButton({ text, tone }) {
 }
 
 function prettyExport(data) {
-  return JSON.stringify(data, null, 2).replace(/\\n/g, "\n");
+  return JSON.stringify(data, null, 2).replace(/\\n/g, " ");
 }
 
 function InputPanel({ item }) {

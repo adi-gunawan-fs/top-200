@@ -95,6 +95,8 @@ function renderDiffValue(value, toneClass, otherValue, side, path) {
   const str = coerce(value);
   const otherStr = otherValue === null || otherValue === undefined ? null : coerce(otherValue);
 
+  const display = (s) => s.replace(/\n/g, " ");
+
   if (isStructuredValue(simplify(value))) {
     return (
       <pre className={`whitespace-pre-wrap break-words bg-transparent p-0 text-[11px] ${toneClass}`}>
@@ -104,7 +106,7 @@ function renderDiffValue(value, toneClass, otherValue, side, path) {
   }
   return (
     <p className={`break-words text-[11px] ${toneClass}`}>
-      <DiffText text={str} side={side} otherText={otherStr} toneClass={toneClass} />
+      <DiffText text={display(str)} side={side} otherText={otherStr ? display(otherStr) : otherStr} toneClass={toneClass} />
     </p>
   );
 }

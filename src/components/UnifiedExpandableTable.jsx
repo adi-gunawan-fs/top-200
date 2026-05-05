@@ -238,7 +238,7 @@ function flattenTitles(nodes, depth = 0, out = []) {
   return out;
 }
 
-function MenuTitlesTable({ filteredRoots, selectedRelevancySet }) {
+function MenuTitlesTable({ filteredRoots, selectedRelevancySet, analysisResultsMap, analysisJobsMap, runningKeys, onRunOne, eligibleItemKeys, modelNames, weights, difficultyThreshold }) {
   const titleRows = useMemo(() => flattenTitles(filteredRoots), [filteredRoots]);
 
   return (
@@ -250,6 +250,7 @@ function MenuTitlesTable({ filteredRoots, selectedRelevancySet }) {
           <col className="w-60" />
           <col className="w-[320px]" />
           <col className="w-40" />
+          <col className="w-40" />
         </colgroup>
         <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
           <tr>
@@ -258,12 +259,13 @@ function MenuTitlesTable({ filteredRoots, selectedRelevancySet }) {
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Analysis</th>
           </tr>
         </thead>
         <tbody>
           {titleRows.length === 0 ? (
             <tr>
-              <td colSpan={5} className="px-3 py-4 text-xs text-slate-500">No menu title changes to display.</td>
+              <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title changes to display.</td>
             </tr>
           ) : (
             titleRows.map(({ node, depth }) => {
@@ -272,6 +274,9 @@ function MenuTitlesTable({ filteredRoots, selectedRelevancySet }) {
               const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
                 .filter((field) => !shouldHideChangedField(item, field));
               const visibleChangeTypeCounts = getVisibleChangeTypeCounts(visibleChangedFields);
+
+              const shortKey = `${item.id}__${item.type}`;
+              const isEligible = eligibleItemKeys?.has(shortKey);
 
               return (
                 <tr key={`title-${node.id}`} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
@@ -288,7 +293,30 @@ function MenuTitlesTable({ filteredRoots, selectedRelevancySet }) {
                     <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
                   </td>
                   <td className="px-3 py-2">
-                    <span className="text-slate-400">-</span>
+                    <AnalysisStatusCell
+                      shortKey={shortKey}
+                      modelNames={modelNames ?? []}
+                      analysisResultsMap={analysisResultsMap}
+                      runningKeys={runningKeys}
+                      isEligible={isEligible}
+                      weights={weights}
+                      difficultyThreshold={difficultyThreshold}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    {isEligible ? (
+                      <AnalysisCell
+                        item={item}
+                        shortKey={shortKey}
+                        job={analysisJobsMap?.[shortKey]}
+                        modelNames={modelNames ?? []}
+                        analysisResultsMap={analysisResultsMap}
+                        runningKeys={runningKeys}
+                        onRunOne={onRunOne}
+                      />
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -676,6 +704,14 @@ export function UnifiedExpandableTable({
       <MenuTitlesTable
         filteredRoots={filteredRoots}
         selectedRelevancySet={selectedRelevancySet}
+        analysisResultsMap={analysisResultsMap}
+        analysisJobsMap={analysisJobsMap}
+        runningKeys={runningKeys}
+        onRunOne={onRunOne}
+        eligibleItemKeys={eligibleItemKeys}
+        modelNames={modelNames}
+        weights={weights}
+        difficultyThreshold={difficultyThreshold}
       />
 
       <div className="border-y border-slate-200 px-3 py-2">
