@@ -28,6 +28,10 @@ export function parseCsv(file, { onRow, onProgress } = {}) {
         } else {
           try {
             const message = JSON.parse(row.message);
+            let snapshots = undefined;
+            if (row.snapshots) {
+              try { snapshots = JSON.parse(row.snapshots); } catch { /* ignore */ }
+            }
             onRow?.({
               id: row.id,
               createdAt: row.createdAt,
@@ -35,6 +39,7 @@ export function parseCsv(file, { onRow, onProgress } = {}) {
               updatedAt: row.updatedAt,
               updatedAtMs: toTimestamp(row.updatedAt),
               message,
+              ...(snapshots !== undefined ? { snapshots } : {}),
             });
           } catch {
             skippedRows += 1;

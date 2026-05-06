@@ -531,6 +531,18 @@ function DishesTable({
 
   const pageDishIdsKey = pageEntries.map((e) => e.dish.id).join(",");
   useEffect(() => {
+    // If afterRecord already has baked-in snapshots (from CSV export), use them directly
+    if (afterRecord?.snapshots) {
+      const map = {};
+      pageEntries.forEach(({ dish }) => {
+        const rows = afterRecord.snapshots[dish.id];
+        map[dish.id] = rows !== undefined ? { rows, error: null } : { rows: [], error: null };
+      });
+      setSnapshotsByDishId(map);
+      setSnapshotsLoading(false);
+      return;
+    }
+
     if (!afterRecord || pageEntries.length === 0) {
       setSnapshotsByDishId({});
       setSnapshotsLoading(false);

@@ -119,14 +119,7 @@ app.get("/api/messages", async (req, res) => {
     let rows;
 
     if (menuId) {
-      // Look up the autoeatId for this internal menu ID first
-      const { rows: menuRows } = await pool.query(
-        `SELECT "autoeatId" FROM menus WHERE id = $1 AND "autoeatId" IS NOT NULL LIMIT 1`,
-        [menuId],
-      );
-      if (menuRows.length === 0) return res.json({ rows: [], nextCursor: null });
-
-      const autoeatId = menuRows[0].autoeatId;
+      // menuId here is the autoeat menu ID (message.menu.id) — query directly
       ({ rows } = await pool.query(
         `SELECT id, "createdAt", "updatedAt", message
          FROM (
@@ -148,7 +141,7 @@ app.get("/api/messages", async (req, res) => {
          WHERE rn <= 2
          ORDER BY id ASC
          LIMIT $3`,
-        [autoeatId, cursor, pageSize],
+        [menuId, cursor, pageSize],
       ));
     } else {
       ({ rows } = await pool.query(

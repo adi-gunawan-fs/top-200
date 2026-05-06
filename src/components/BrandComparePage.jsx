@@ -73,7 +73,6 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(null);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -386,15 +385,16 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   }
 
   const [exportError, setExportError] = useState("");
+  const [exportSnapshotProgress, setExportSnapshotProgress] = useState(null);
 
   async function handleExportToCsv() {
-    if (exporting || !session || !group?.brandId) return;
+    if (exporting || !session || !beforeRecord || !afterRecord) return;
     setExporting(true);
     setExportError("");
-    setExportProgress({ totalRows: 0 });
+    setExportSnapshotProgress(null);
     try {
-      const saved = await exportSingleBrandToCSV(group.menuId, group.brandName, session.user.id, {
-        onProgress: ({ totalRows }) => setExportProgress({ totalRows }),
+      const saved = await exportSingleBrandToCSV(beforeRecord, afterRecord, group.brandName, session.user.id, {
+        onProgress: ({ done, total }) => setExportSnapshotProgress({ done, total }),
       });
       onExportDone?.(saved);
     } catch (err) {
@@ -402,7 +402,7 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
       setExportError(err?.message ?? "Export failed.");
     } finally {
       setExporting(false);
-      setExportProgress(null);
+      setExportSnapshotProgress(null);
     }
   }
 
@@ -457,20 +457,18 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
               </Button>
-              {session && group?.brandId ? (
+              {session ? (
                 <Button
                   variant="tonal"
                   tone="info"
                   onClick={handleExportToCsv}
-                  disabled={exporting}
+                  disabled={exporting || !isValidSelection}
                 >
-                  {exporting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Download className="h-3.5 w-3.5" />
-                  )}
+                  {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                   {exporting
-                    ? `Exporting…${exportProgress?.totalRows ? ` (${exportProgress.totalRows})` : ""}`
+                    ? exportSnapshotProgress
+                      ? `Fetching snapshots… ${exportSnapshotProgress.done}/${exportSnapshotProgress.total}`
+                      : "Exporting…"
                     : "Export to CSV"}
                 </Button>
               ) : null}

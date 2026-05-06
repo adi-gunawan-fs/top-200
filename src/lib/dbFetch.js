@@ -79,30 +79,30 @@ export async function fetchDishSnapshots(dishId, afterDate) {
   return rows;
 }
 
-// Streams messages for a single menu (by menus.id), builds a CSV, and saves it to Supabase.
-// onProgress({ done, totalRows }) fires as rows arrive.
+// Builds a CSV from the two selected records (beforeRecord, afterRecord) and saves to Supabase.
+// Fetches all dish snapshots (created after beforeRecord.createdAt) and bakes them into the after row.
 // Returns the saved upload record.
-export async function exportSingleBrandToCSV(menuId, brandName, userId, { onProgress } = {}) {
-  const csvRows = [];
-  let totalRows = 0;
+export async function exportSingleBrandToCSV(beforeRecord, afterRecord, brandName, userId, { onProgress } = {}) {
+  // Collect all dish autoeat IDs from the after message
+  const dishes = afterRecord.message?.dishes ?? [];
+  const total = dishes.length;
+  let done = 0;
 
-  await streamMessages({ menuId }, {
-    onRow: (row) => {
-      csvRows.push({
-        id: row.id,
-        createdAt: row.createdAt ?? "",
-        updatedAt: row.updatedAt ?? "",
-        message: JSON.stringify(row.message),
-      });
-      totalRows = csvRows.length;
-      onProgress?.({ done: false, totalRows });
-    },
-  });
-
-  console.log(`[export] streamed ${csvRows.length} rows for menu ${menuId} (${brandName})`);
-  if (csvRows.length === 0) {
-    throw new Error(`No messages found for ${brandName} (menu id ${menuId}). Export aborted.`);
-  }
+  const snapshotsMap = {};
+  await Promise.all(
+    dishes.map(async (dish) => {
+      if (!dish?.id) return;
+      try {
+        const rows = await fetchDishSnapshots(dish.id, beforeRecord.createdAt);
+        snapshotsMap[dish.id] = rows;
+      } catch {
+        snapshotsMap[dish.id] = [];
+      } finally {
+        done += 1;
+        onProgress?.({ done, total });
+      }
+    })
+  );
 
   const escape = (v) => {
     const s = String(v ?? "");
@@ -110,14 +110,23 @@ export async function exportSingleBrandToCSV(menuId, brandName, userId, { onProg
       ? `"${s.replace(/"/g, '""')}"`
       : s;
   };
-  const header = "id,createdAt,updatedAt,message";
-  const body = csvRows.map((r) => [r.id, r.createdAt, r.updatedAt, r.message].map(escape).join(",")).join("\n");
+
+  const toRow = (r, snapshots) => {
+    const cols = [r.id, r.createdAt ?? "", r.updatedAt ?? "", JSON.stringify(r.message)];
+    if (snapshots !== undefined) cols.push(JSON.stringify(snapshots));
+    return cols.map(escape).join(",");
+  };
+
+  const header = "id,createdAt,updatedAt,message,snapshots";
+  const body = [
+    toRow(beforeRecord, undefined),   // before row — no snapshots column value
+    toRow(afterRecord, snapshotsMap), // after row — snapshots baked in
+  ].join("\n");
   const csvContent = `${header}\n${body}`;
 
   const now = new Date();
   const label = now.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  const safeBrand = String(brandName ?? `Brand ${brandId}`).trim();
-  const name = `${safeBrand} — ${label}`;
+  const name = `${String(brandName ?? "Brand").trim()} — ${label}`;
 
   const csvBytes = new TextEncoder().encode(csvContent);
   const compressionStream = new CompressionStream("gzip");
@@ -137,7 +146,6 @@ export async function exportSingleBrandToCSV(menuId, brandName, userId, { onProg
   const file = new File([compressedBytes], `${name}.csv.gz`, { type: "application/gzip" });
 
   const saved = await saveUpload(name, file, userId);
-  onProgress?.({ done: true, totalRows });
   return saved;
 }
 
