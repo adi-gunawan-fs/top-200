@@ -15,3 +15,14 @@
 body {
   margin: 0;
 }
+
+.dishes-scroll-shell .name-sticky-shadow,
+.dishes-scroll-shell .type-sticky-shadow {
+  display: none;
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.16), rgba(15, 23, 42, 0.06) 38%, transparent);
+}
+
+.dishes-scroll-shell.is-scrolled-x:not(.is-type-stuck) .name-sticky-shadow,
+.dishes-scroll-shell.is-type-stuck .type-sticky-shadow {
+  display: block;
+}

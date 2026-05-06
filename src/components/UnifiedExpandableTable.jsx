@@ -286,12 +286,11 @@ function SnapshotValue({ col, value }) {
 // Renders the inline snapshot <td> cells for a single snapshot row (or a placeholder/error/empty state).
 // `snapshot` is the snapshot row object, or null when rendering a placeholder.
 // `placeholder` is one of: "noAfter", "error", "loading", "empty", or null (real snapshot).
-function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg, isScrolledX }) {
-  const cellShadow = isScrolledX ? { boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : undefined;
-  const stickyStyle = { left: "420px", ...cellShadow };
+function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg }) {
+  const stickyStyle = { left: "420px" };
 
   const renderTypeSeparator = () => (
-    isScrolledX ? <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} /> : null
+    <span aria-hidden="true" className="type-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
   );
 
   const placeholderContent = (() => {
@@ -308,7 +307,7 @@ function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg, isScroll
         return (
           <td
             key={col.key}
-            className={`sticky z-[5] px-3 py-2 align-top relative ${stickyBg ?? "bg-white"} ${placeholderContent.cls}`}
+            className={`type-sticky-cell sticky z-[5] px-3 py-2 align-top relative ${stickyBg ?? "bg-white"} ${placeholderContent.cls}`}
             style={stickyStyle}
           >
             {placeholderContent.text}
@@ -329,7 +328,7 @@ function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg, isScroll
       return (
         <td
           key={col.key}
-          className={`sticky z-[5] px-3 py-2 text-xs text-slate-700 align-top whitespace-nowrap relative ${stickyBg ?? "bg-white"}`}
+          className={`type-sticky-cell sticky z-[5] px-3 py-2 text-xs text-slate-700 align-top whitespace-nowrap relative ${stickyBg ?? "bg-white"}`}
           style={stickyStyle}
         >
           <SnapshotValue col={col} value={snapshot[col.key]} />
@@ -464,7 +463,8 @@ function DishesTable({
 }) {
   const [page, setPage] = useState(0);
   const [selectedGroupKey, setSelectedGroupKey] = useState("all");
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const tableScrollRef = useRef(null);
+  const scrollClassStateRef = useRef({ raf: 0, scrolledX: false, typeStuck: false });
   const [snapshotsByDishId, setSnapshotsByDishId] = useState({});
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
 
@@ -472,14 +472,38 @@ function DishesTable({
   // description(360) + menuTitle(360) + ingredients(360) + addons(320) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 2408
   const TYPE_STICKY_THRESHOLD = 2408;
 
-  const isScrolledX = scrollLeft >= TYPE_STICKY_THRESHOLD;
-  const showNameLine = scrollLeft > 0 && !isScrolledX;
-  const showTypeLine = isScrolledX;
+  const updateScrollClasses = (scrollEl) => {
+    if (!scrollEl) return;
+    const nextScrolledX = scrollEl.scrollLeft > 0;
+    const nextTypeStuck = scrollEl.scrollLeft >= TYPE_STICKY_THRESHOLD;
+    const state = scrollClassStateRef.current;
+    if (state.scrolledX !== nextScrolledX) {
+      scrollEl.classList.toggle("is-scrolled-x", nextScrolledX);
+      state.scrolledX = nextScrolledX;
+    }
+    if (state.typeStuck !== nextTypeStuck) {
+      scrollEl.classList.toggle("is-type-stuck", nextTypeStuck);
+      state.typeStuck = nextTypeStuck;
+    }
+  };
 
   const handleScroll = (e) => {
-    const next = e.currentTarget.scrollLeft;
-    setScrollLeft((prev) => (prev === next ? prev : next));
+    const scrollEl = e.currentTarget;
+    const state = scrollClassStateRef.current;
+    if (state.raf) return;
+    state.raf = window.requestAnimationFrame(() => {
+      state.raf = 0;
+      updateScrollClasses(scrollEl);
+    });
   };
+
+  useEffect(() => {
+    updateScrollClasses(tableScrollRef.current);
+    return () => {
+      const raf = scrollClassStateRef.current.raf;
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, []);
 
   // Flat list of dishes in order, each carrying its group info
   const dishEntries = useMemo(() => {
@@ -677,7 +701,7 @@ function DishesTable({
       </div>
     ) : (
     <>
-    <div onScroll={handleScroll} className="max-h-[80vh] overflow-auto overscroll-y-contain">
+    <div ref={tableScrollRef} onScroll={handleScroll} className="dishes-scroll-shell max-h-[80vh] overflow-auto overscroll-y-contain">
       <table className="table-fixed border-collapse" style={{ minWidth: "100%", width: "max-content" }}>
         <colgroup>
           <col style={{ width: "420px" }} />
@@ -695,7 +719,7 @@ function DishesTable({
           <tr>
             <th className="sticky top-0 left-0 z-30 bg-slate-100 px-3 py-2 relative">
               Name
-              {showNameLine && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+              <span aria-hidden="true" className="name-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
             </th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Description</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Menu Title</th>
@@ -709,11 +733,11 @@ function DishesTable({
               col.key === "type" ? (
                 <th
                   key={col.key}
-                  className="sticky top-0 z-30 bg-slate-100 px-3 py-2 transition-shadow relative"
-                  style={isScrolledX ? { left: "420px", boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : { left: "420px" }}
+                  className="type-sticky-cell sticky top-0 z-30 bg-slate-100 px-3 py-2 relative"
+                  style={{ left: "420px" }}
                 >
                   {col.label}
-                  {isScrolledX && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+                  <span aria-hidden="true" className="type-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
                 </th>
               ) : (
                 <th key={col.key} className="sticky top-0 z-20 bg-slate-100 px-3 py-2">{col.label}</th>
@@ -776,7 +800,7 @@ function DishesTable({
                           <div className="flex items-start gap-1.5">
                             <span className="break-words">{item.name || "-"}</span>
                           </div>
-                          {showNameLine && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+                          <span aria-hidden="true" className="name-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <span className="break-words text-slate-700">
@@ -838,7 +862,6 @@ function DishesTable({
                       placeholder={placeholder}
                       errorMessage={error}
                       stickyBg={stickyBg}
-                      isScrolledX={isScrolledX}
                     />
                   </tr>
                 );
