@@ -17,7 +17,7 @@ export async function fetchOverview() {
   return rows;
 }
 
-// Fetches the 2 latest messages for a single menu, returns them as parsed rows.
+// Fetches all messages for a single menu (newest first), returns them as parsed rows.
 export async function fetchMenuMessages(menuId) {
   const res = await fetch(`${API_BASE}/api/menu-messages?menuId=${menuId}`);
   if (!res.ok) throw new Error(`Failed to fetch menu messages: ${res.statusText}`);

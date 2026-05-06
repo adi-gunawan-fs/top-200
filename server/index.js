@@ -74,7 +74,7 @@ app.get("/api/overview", async (_req, res) => {
 });
 
 // GET /api/menu-messages?menuId=X
-// Returns exactly the 2 latest autoeatMessages for a single menu.
+// Returns all autoeatMessages for a single menu, newest first.
 app.get("/api/menu-messages", async (req, res) => {
   const menuId = parseInt(req.query.menuId, 10);
   if (!menuId) return res.status(400).json({ error: "menuId required" });
@@ -93,8 +93,7 @@ app.get("/api/menu-messages", async (req, res) => {
        WHERE type = 'MENU_FOR_CURATION'
          AND "createdAt" > '2025-01-01 00:00:00+00'
          AND "menuId" = $1
-       ORDER BY "createdAt" DESC
-       LIMIT 2`,
+       ORDER BY "createdAt" DESC`,
       [menuRows[0].autoeatId],
     );
 

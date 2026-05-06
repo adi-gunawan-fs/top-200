@@ -202,6 +202,55 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
   );
 }
 
+function cleanHtmlText(str) {
+  if (typeof str !== "string") return str;
+  return str
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\n/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function formatAddons(value) {
+  if (value == null) return "";
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((v) => (v && typeof v === "object" ? v.text ?? v.innerText ?? null : v))
+      .filter((v) => v != null);
+    return cleanHtmlText(parts.join(" "));
+  }
+  if (typeof value === "object") return cleanHtmlText(value.text ?? value.innerText ?? "");
+  return cleanHtmlText(value);
+}
+
+const TRUNCATE_LIMIT = 200;
+
+function ExpandableText({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return <span className="text-slate-400">—</span>;
+  const isLong = text.length > TRUNCATE_LIMIT;
+  if (!isLong) return <span className="break-words text-slate-700">{text}</span>;
+  return (
+    <span className="break-words text-slate-700">
+      {expanded ? text : `${text.slice(0, TRUNCATE_LIMIT).trimEnd()}… `}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="ml-1 text-blue-700 hover:text-blue-900 hover:underline focus:outline-none"
+      >
+        {expanded ? "See less" : "See more"}
+      </button>
+    </span>
+  );
+}
+
 const INLINE_SNAPSHOT_COLUMNS = [
   { key: "type", label: "Type", nowrap: true },
   { key: "createdAt", label: "Created At", nowrap: true },
@@ -420,8 +469,8 @@ function DishesTable({
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
 
   // Threshold = sum of column widths between Name (420) and Type:
-  // description(360) + menuTitle(360) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 1728
-  const TYPE_STICKY_THRESHOLD = 1728;
+  // description(360) + menuTitle(360) + ingredients(360) + addons(320) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 2408
+  const TYPE_STICKY_THRESHOLD = 2408;
 
   const isScrolledX = scrollLeft >= TYPE_STICKY_THRESHOLD;
   const showNameLine = scrollLeft > 0 && !isScrolledX;
@@ -622,6 +671,8 @@ function DishesTable({
           <col style={{ width: "420px" }} />
           <col style={{ width: "360px" }} />
           <col style={{ width: "360px" }} />
+          <col style={{ width: "360px" }} />
+          <col style={{ width: "320px" }} />
           <col style={{ width: "240px" }} />
           <col style={{ width: "320px" }} />
           <col style={{ width: "160px" }} />
@@ -636,6 +687,8 @@ function DishesTable({
             </th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Description</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Menu Title</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Ingredient Free Text</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Addson Descriptor</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
@@ -659,7 +712,7 @@ function DishesTable({
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={7 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={9 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
             pageEntries.flatMap(({ dish, menuTitleItem }) => {
@@ -672,6 +725,8 @@ function DishesTable({
               const dishDescription = item.after?.description ?? item.before?.description ?? "";
               const menuTitleName = menuTitleItem?.title ?? menuTitleItem?.after?.title ?? menuTitleItem?.before?.title ?? "";
               const menuTitleDescription = menuTitleItem?.after?.description ?? menuTitleItem?.before?.description ?? "";
+              const ingredientFreeText = item.after?.ingredients ?? item.before?.ingredients ?? "";
+              const addonDescriptor = formatAddons(item.after?.addons ?? item.before?.addons);
 
               const stickyBg = item.status === "new"
                 ? "bg-emerald-50"
@@ -725,6 +780,12 @@ function DishesTable({
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ExpandableText text={ingredientFreeText} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ExpandableText text={addonDescriptor} />
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <ChangeTypeCounts counts={visibleChangeTypeCounts} />
