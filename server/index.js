@@ -179,16 +179,23 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
-// GET /api/dish-snapshots?autoeatDishId=X&afterDate=Y
-// Returns dishSnapshots for the given autoeat dish ID created after the given date.
+// GET /api/dish-snapshots?dishId=X[&afterDate=Y]
+// Returns dishSnapshots for the given autoeat dish ID.
+// If afterDate is provided, returns snapshots created after that date.
 // Resolves: autoeatDishId -> dishes.autoeatId -> dishes.id -> dishSnapshots.dishId
 app.get("/api/dish-snapshots", async (req, res) => {
   const autoeatDishId = parseInt(req.query.dishId, 10);
   const afterDate = req.query.afterDate;
   if (!autoeatDishId) return res.status(400).json({ error: "dishId required" });
-  if (!afterDate) return res.status(400).json({ error: "afterDate required" });
 
   try {
+    const values = [autoeatDishId];
+    let createdAtFilter = "";
+    if (afterDate) {
+      values.push(afterDate);
+      createdAtFilter = ` AND ds."createdAt" > $2`;
+    }
+
     const { rows } = await pool.query(
       `SELECT
          ds."id",
@@ -241,9 +248,9 @@ app.get("/api/dish-snapshots", async (req, res) => {
          LEFT JOIN "ingredients" i ON i.id = uaid
        ) additional_ing_agg ON true
        WHERE dsh."autoeatId" = $1
-         AND ds."createdAt" > $2
+         ${createdAtFilter}
        ORDER BY ds."createdAt" DESC`,
-      [autoeatDishId, afterDate],
+      values,
     );
     res.json({ rows });
   } catch (err) {

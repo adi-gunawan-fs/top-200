@@ -60,7 +60,11 @@ export function DishSnapshotsModal({ dishId, afterDate, dishName, onClose }) {
       onClose={onClose}
       size="xl"
       title={`Dish Snapshots — ${dishName || dishId}`}
-      subtitle={`Dish ID ${dishId} · snapshots after ${new Date(afterDate).toLocaleString()}`}
+      subtitle={
+        afterDate
+          ? `Dish ID ${dishId} · snapshots after ${new Date(afterDate).toLocaleString()}`
+          : `Dish ID ${dishId} · all snapshots`
+      }
     >
       <div className="p-4">
         {error ? (
@@ -71,7 +75,11 @@ export function DishSnapshotsModal({ dishId, afterDate, dishName, onClose }) {
             Loading snapshots…
           </div>
         ) : snapshots.length === 0 ? (
-          <p className="text-xs text-slate-500">No snapshots found for this dish after the selected date.</p>
+          <p className="text-xs text-slate-500">
+            {afterDate
+              ? "No snapshots found for this dish after the selected date."
+              : "No snapshots found for this dish."}
+          </p>
         ) : (
           <div className="overflow-auto">
             <table className="min-w-full border-collapse text-xs">

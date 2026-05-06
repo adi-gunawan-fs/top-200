@@ -251,6 +251,26 @@ function ExpandableText({ text }) {
   );
 }
 
+function ExpandableJson({ data }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!data) return <span className="text-slate-400">—</span>;
+  const jsonStr = JSON.stringify(data, null, 2);
+  const isLong = jsonStr.length > TRUNCATE_LIMIT;
+  if (!isLong) return <pre className="whitespace-pre-wrap break-words text-xs text-slate-700 bg-transparent p-0">{jsonStr}</pre>;
+  return (
+    <div className="text-slate-700">
+      <pre className={`whitespace-pre-wrap break-words text-xs bg-transparent p-0 ${expanded ? "" : "line-clamp-3"}`}>{jsonStr}</pre>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="ml-1 text-xs text-blue-700 hover:text-blue-900 hover:underline focus:outline-none"
+      >
+        {expanded ? "See less" : "See more"}
+      </button>
+    </div>
+  );
+}
+
 const INLINE_SNAPSHOT_COLUMNS = [
   { key: "type", label: "Type", nowrap: true },
   { key: "dishType", label: "Dish Type", narrow: true },
@@ -580,7 +600,7 @@ function DishesTable({
     setSnapshotsByDishId({});
     Promise.all(
       pageEntries.map((entry) =>
-        fetchDishSnapshots(entry.dish.id, afterRecord.createdAt)
+        fetchDishSnapshots(entry.dish.id)
           .then((rows) => ({ id: entry.dish.id, rows, error: null }))
           .catch((err) => ({ id: entry.dish.id, rows: null, error: err.message }))
       )
@@ -713,6 +733,7 @@ function DishesTable({
           <col style={{ width: "360px" }} />
           <col style={{ width: "320px" }} />
           <col style={{ width: "240px" }} />
+          <col style={{ width: "240px" }} />
           <col style={{ width: "320px" }} />
           <col style={{ width: "160px" }} />
           <col style={{ width: "288px" }} />
@@ -728,6 +749,7 @@ function DishesTable({
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Menu Title</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Ingredient Free Text</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Addson Descriptor</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Diet Descriptor</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
@@ -751,7 +773,7 @@ function DishesTable({
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={9 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={10 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
             pageEntries.flatMap(({ dish, menuTitleItem }) => {
@@ -766,6 +788,11 @@ function DishesTable({
               const menuTitleDescription = menuTitleItem?.after?.description ?? menuTitleItem?.before?.description ?? "";
               const ingredientFreeText = item.after?.ingredients ?? item.before?.ingredients ?? "";
               const addonDescriptor = formatAddons(item.after?.addons ?? item.before?.addons);
+              const dietData = item.after?.diets ?? item.before?.diets;
+
+              const result = snapshotsByDishId[item.id];
+              const snapshots = result?.rows ?? null;
+              const error = result?.error ?? null;
 
               const stickyBg = item.status === "new"
                 ? "bg-emerald-50"
@@ -774,10 +801,6 @@ function DishesTable({
                   : item.status === "deleted"
                     ? "bg-rose-50"
                     : "bg-white";
-
-              const result = snapshotsByDishId[item.id];
-              const snapshots = result?.rows ?? null;
-              const error = result?.error ?? null;
 
               let placeholder = null;
               if (!afterRecord) placeholder = "noAfter";
@@ -825,6 +848,9 @@ function DishesTable({
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <ExpandableText text={addonDescriptor} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ExpandableJson data={dietData} />
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <ChangeTypeCounts counts={visibleChangeTypeCounts} />

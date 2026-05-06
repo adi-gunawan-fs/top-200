@@ -70,9 +70,11 @@ export async function streamMessages({ brandId, menuId } = {}, { onRow, onProgre
   return { totalRows };
 }
 
-// Fetches dishSnapshots for a given dishId created after afterDate (ISO string).
+// Fetches dishSnapshots for a given dishId.
+// If afterDate is provided, only returns snapshots created after that date.
 export async function fetchDishSnapshots(dishId, afterDate) {
-  const params = new URLSearchParams({ dishId, afterDate });
+  const params = new URLSearchParams({ dishId });
+  if (afterDate) params.set("afterDate", afterDate);
   const res = await fetch(`${API_BASE}/api/dish-snapshots?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch dish snapshots: ${res.statusText}`);
   const { rows } = await res.json();
