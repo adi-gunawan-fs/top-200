@@ -384,6 +384,12 @@ function DishesTable({
 }) {
   const [page, setPage] = useState(0);
   const [selectedGroupKey, setSelectedGroupKey] = useState("all");
+  const [isScrolledX, setIsScrolledX] = useState(false);
+
+  const handleScroll = (e) => {
+    const next = e.currentTarget.scrollLeft > 0;
+    setIsScrolledX((prev) => (prev === next ? prev : next));
+  };
 
   // Flat list of dishes in order, each carrying its group info
   const dishEntries = useMemo(() => {
@@ -398,7 +404,7 @@ function DishesTable({
       collectDishes(node);
 
       allDishes.forEach((dish) => {
-        entries.push({ dish, groupKey: `group-${node.id}`, groupLabel: node.item.title || `Menu Title ${node.item.id}` });
+        entries.push({ dish, menuTitleItem: node.item, groupKey: `group-${node.id}`, groupLabel: node.item.title || `Menu Title ${node.item.id}` });
       });
 
       node.children.forEach(walkTitles);
@@ -407,7 +413,7 @@ function DishesTable({
     filteredRoots.forEach(walkTitles);
 
     filteredOrphanDishes.forEach((dish) => {
-      entries.push({ dish, groupKey: "group-orphan", groupLabel: "No Menu Title" });
+      entries.push({ dish, menuTitleItem: null, groupKey: "group-orphan", groupLabel: "No Menu Title" });
     });
 
     return entries;
@@ -533,11 +539,12 @@ function DishesTable({
         </button>
       </div>
     )}
-    <div className="max-h-[80vh] overflow-auto overscroll-y-contain">
+    <div onScroll={handleScroll} className="max-h-[80vh] overflow-auto overscroll-y-contain">
       <table className="table-fixed border-collapse" style={{ minWidth: "100%", width: "max-content" }}>
         <colgroup>
-          <col style={{ width: "144px" }} />
           <col style={{ width: "420px" }} />
+          <col style={{ width: "360px" }} />
+          <col style={{ width: "360px" }} />
           <col style={{ width: "240px" }} />
           <col style={{ width: "320px" }} />
           <col style={{ width: "160px" }} />
@@ -546,8 +553,15 @@ function DishesTable({
         </colgroup>
         <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
           <tr>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">ID</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Name</th>
+            <th
+              className="sticky top-0 left-0 z-30 bg-slate-100 px-3 py-2 transition-shadow relative"
+              style={isScrolledX ? { boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : undefined}
+            >
+              Name
+              {isScrolledX && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+            </th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Description</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Menu Title</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
@@ -560,24 +574,53 @@ function DishesTable({
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={6 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={7 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
-            pageEntries.map(({ dish }) => {
+            pageEntries.map(({ dish, menuTitleItem }) => {
               const item = dish;
               const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
                 .filter((field) => !shouldHideChangedField(item, field));
               const visibleChangeTypeCounts = getVisibleChangeTypeCounts(visibleChangedFields);
               const shortKey = `${item.id}__${item.type}`;
               const isEligible = eligibleItemKeys?.has(shortKey);
+              const dishDescription = item.after?.description ?? item.before?.description ?? "";
+              const menuTitleName = menuTitleItem?.title ?? menuTitleItem?.after?.title ?? menuTitleItem?.before?.title ?? "";
+              const menuTitleDescription = menuTitleItem?.after?.description ?? menuTitleItem?.before?.description ?? "";
+
+              const stickyBg = item.status === "new"
+                ? "bg-emerald-50"
+                : item.status === "updated"
+                  ? "bg-amber-50"
+                  : item.status === "deleted"
+                    ? "bg-rose-50"
+                    : "bg-white";
 
               return (
                 <tr key={`dish-${item.id}`} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
-                  <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
-                  <td className="px-3 py-2">
+                  <td
+                    className={`sticky left-0 z-10 px-3 py-2 font-medium text-slate-900 transition-shadow relative ${stickyBg}`}
+                    style={isScrolledX ? { boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : undefined}
+                  >
                     <div className="flex items-start gap-1.5">
                       <span className="break-words">{item.name || "-"}</span>
                     </div>
+                    {isScrolledX && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <span className="break-words text-slate-700">
+                      {dishDescription || <span className="text-slate-400">—</span>}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    {menuTitleName || menuTitleDescription ? (
+                      <div className="flex flex-col gap-0.5">
+                        {menuTitleName && <span className="font-medium text-slate-900 break-words">{menuTitleName}</span>}
+                        {menuTitleDescription && <span className="text-slate-500 break-words">{menuTitleDescription}</span>}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <ChangeTypeCounts counts={visibleChangeTypeCounts} />
