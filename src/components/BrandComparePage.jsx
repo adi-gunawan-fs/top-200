@@ -3,6 +3,7 @@ import { ArrowLeft, Download, Play, Loader2, History, RefreshCw } from "lucide-r
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
+import { exportSingleBrandToCSV } from "../lib/dbFetch";
 import { Button, IconButton } from "./ui/Button";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { RecordSelect } from "./ui/RecordSelect";
@@ -56,7 +57,7 @@ function isBulkRunActive(run) {
 
 
 
-function BrandComparePage({ group, onBack }) {
+function BrandComparePage({ group, onBack, session, onExportDone }) {
   const records = group.records ?? [];
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
@@ -71,6 +72,8 @@ function BrandComparePage({ group, onBack }) {
   const [rerunAllConfirmOpen, setRerunAllConfirmOpen] = useState(false);
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(null);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -382,6 +385,27 @@ function BrandComparePage({ group, onBack }) {
     return null;
   }
 
+  const [exportError, setExportError] = useState("");
+
+  async function handleExportToCsv() {
+    if (exporting || !session || !group?.brandId) return;
+    setExporting(true);
+    setExportError("");
+    setExportProgress({ totalRows: 0 });
+    try {
+      const saved = await exportSingleBrandToCSV(group.menuId, group.brandName, session.user.id, {
+        onProgress: ({ totalRows }) => setExportProgress({ totalRows }),
+      });
+      onExportDone?.(saved);
+    } catch (err) {
+      console.error("Single-brand export failed:", err);
+      setExportError(err?.message ?? "Export failed.");
+    } finally {
+      setExporting(false);
+      setExportProgress(null);
+    }
+  }
+
   function handleExportJson() {
     if (!comparison) return;
 
@@ -433,6 +457,26 @@ function BrandComparePage({ group, onBack }) {
                 <Download className="h-3.5 w-3.5" />
                 Export JSON
               </Button>
+              {session && group?.brandId ? (
+                <Button
+                  variant="tonal"
+                  tone="info"
+                  onClick={handleExportToCsv}
+                  disabled={exporting}
+                >
+                  {exporting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {exporting
+                    ? `Exporting…${exportProgress?.totalRows ? ` (${exportProgress.totalRows})` : ""}`
+                    : "Export to CSV"}
+                </Button>
+              ) : null}
+              {exportError ? (
+                <span className="text-xs text-rose-600">{exportError}</span>
+              ) : null}
               <Button
                 variant="tonal"
                 tone="ai"

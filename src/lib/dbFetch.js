@@ -32,14 +32,17 @@ export async function fetchMenuMessages(menuId) {
   }));
 }
 
-// Fetches all pages of 2-latest-per-menu messages for a brand.
+// Fetches all pages of 2-latest-per-menu messages for a brand or single menu.
+// Pass { brandId } for all menus of a brand, or { menuId } for a single menu (menus.id).
 // Calls onRow for each row as pages arrive so the grouper processes incrementally.
-export async function streamMessages(brandId, { onRow, onProgress } = {}) {
+export async function streamMessages({ brandId, menuId } = {}, { onRow, onProgress } = {}) {
   let cursor = 0;
   let totalRows = 0;
 
   while (true) {
-    const params = new URLSearchParams({ brandId, cursor, pageSize: 500 });
+    const params = new URLSearchParams({ cursor, pageSize: 500 });
+    if (menuId) params.set("menuId", menuId);
+    else params.set("brandId", brandId);
     const res = await fetch(`${API_BASE}/api/messages?${params}`);
     if (!res.ok) throw new Error(`Failed to fetch messages: ${res.statusText}`);
 
@@ -76,6 +79,68 @@ export async function fetchDishSnapshots(dishId, afterDate) {
   return rows;
 }
 
+// Streams messages for a single menu (by menus.id), builds a CSV, and saves it to Supabase.
+// onProgress({ done, totalRows }) fires as rows arrive.
+// Returns the saved upload record.
+export async function exportSingleBrandToCSV(menuId, brandName, userId, { onProgress } = {}) {
+  const csvRows = [];
+  let totalRows = 0;
+
+  await streamMessages({ menuId }, {
+    onRow: (row) => {
+      csvRows.push({
+        id: row.id,
+        createdAt: row.createdAt ?? "",
+        updatedAt: row.updatedAt ?? "",
+        message: JSON.stringify(row.message),
+      });
+      totalRows = csvRows.length;
+      onProgress?.({ done: false, totalRows });
+    },
+  });
+
+  console.log(`[export] streamed ${csvRows.length} rows for menu ${menuId} (${brandName})`);
+  if (csvRows.length === 0) {
+    throw new Error(`No messages found for ${brandName} (menu id ${menuId}). Export aborted.`);
+  }
+
+  const escape = (v) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const header = "id,createdAt,updatedAt,message";
+  const body = csvRows.map((r) => [r.id, r.createdAt, r.updatedAt, r.message].map(escape).join(",")).join("\n");
+  const csvContent = `${header}\n${body}`;
+
+  const now = new Date();
+  const label = now.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const safeBrand = String(brandName ?? `Brand ${brandId}`).trim();
+  const name = `${safeBrand} — ${label}`;
+
+  const csvBytes = new TextEncoder().encode(csvContent);
+  const compressionStream = new CompressionStream("gzip");
+  const writer = compressionStream.writable.getWriter();
+  writer.write(csvBytes);
+  writer.close();
+  const compressedChunks = [];
+  const reader = compressionStream.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    compressedChunks.push(value);
+  }
+  const compressedBytes = new Uint8Array(compressedChunks.reduce((acc, c) => acc + c.length, 0));
+  let offset = 0;
+  for (const chunk of compressedChunks) { compressedBytes.set(chunk, offset); offset += chunk.length; }
+  const file = new File([compressedBytes], `${name}.csv.gz`, { type: "application/gzip" });
+
+  const saved = await saveUpload(name, file, userId);
+  onProgress?.({ done: true, totalRows });
+  return saved;
+}
+
 // Streams messages for every top-200 brand, builds a CSV, and saves it to Supabase.
 // onProgress({ done, brandsDone, brandsTotal, totalRows }) fires as work proceeds.
 // Returns the saved upload record.
@@ -105,7 +170,7 @@ export async function exportAllBrandsToCSV(userId, { onProgress } = {}) {
     const batch = brands.slice(i, i + BATCH);
     await Promise.all(
       batch.map(async (brand) => {
-        await streamMessages(brand.id, {
+        await streamMessages({ brandId: brand.id }, {
           onRow: (row) => {
             csvRows.push({
               id: row.id,

@@ -251,13 +251,23 @@ function App() {
         {error ? <EmptyState message={error} tone="danger" /> : null}
 
         {selectedGroup ? (
-          <BrandComparePage group={selectedGroup} onBack={() => {
-            setSelectedGroup(null);
-            if (mode === MODE_DB) {
+          <BrandComparePage
+            group={selectedGroup}
+            session={session}
+            onExportDone={(saved) => {
+              setMode(MODE_CSV);
               setActiveBrand(null);
-              setGroups([]);
-            }
-          }} />
+              setSelectedGroup(null);
+              handleUploadSelect(saved);
+            }}
+            onBack={() => {
+              setSelectedGroup(null);
+              if (mode === MODE_DB) {
+                setActiveBrand(null);
+                setGroups([]);
+              }
+            }}
+          />
         ) : showBrandPicker ? (
           <BrandPickerPage
           onSelectRow={handleSelectMenuRow}

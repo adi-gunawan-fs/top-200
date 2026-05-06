@@ -104,43 +104,79 @@ app.get("/api/menu-messages", async (req, res) => {
   }
 });
 
-// GET /api/messages?brandId=X&cursor=0
-// 1. Get autoeatIds from menus where brandId = X and status = INCLUDED
-// 2. Get 2 latest autoeatMessages per autoeatId (by createdAt DESC)
-// 3. Paginate via cursor on id (safe on large tables, no OFFSET drift)
+// GET /api/messages?brandId=X&cursor=0  — all INCLUDED menus for a DB brand ID
+// GET /api/messages?menuId=X&cursor=0   — single menu by menus.id (looks up autoeatId)
+// 2 latest autoeatMessages per autoeatId, paginated via cursor on id.
 app.get("/api/messages", async (req, res) => {
   const brandId = parseInt(req.query.brandId, 10);
-  if (!brandId) return res.status(400).json({ error: "brandId required" });
+  const menuId = parseInt(req.query.menuId, 10);
+  if (!brandId && !menuId) return res.status(400).json({ error: "brandId or menuId required" });
 
   const cursor = parseInt(req.query.cursor ?? "0", 10);
   const pageSize = 500;
 
   try {
-    const { rows } = await pool.query(
-      `SELECT id, "createdAt", "updatedAt", message
-       FROM (
-         SELECT
-           am.id,
-           am."createdAt",
-           am."updatedAt",
-           am.message,
-           ROW_NUMBER() OVER (
-             PARTITION BY am."menuId"
-             ORDER BY am."createdAt" DESC
-           ) AS rn
-         FROM "autoeatMessages" am
-         INNER JOIN menus m ON m."autoeatId" = am."menuId"
-         WHERE am.type = 'MENU_FOR_CURATION'
-           AND am."createdAt" > '2025-01-01 00:00:00+00'
-           AND m."brandId" = $1
-           AND m."status" = 'INCLUDED'
-           AND am.id > $2
-       ) ranked
-       WHERE rn <= 2
-       ORDER BY id ASC
-       LIMIT $3`,
-      [brandId, cursor, pageSize],
-    );
+    let rows;
+
+    if (menuId) {
+      // Look up the autoeatId for this internal menu ID first
+      const { rows: menuRows } = await pool.query(
+        `SELECT "autoeatId" FROM menus WHERE id = $1 AND "autoeatId" IS NOT NULL LIMIT 1`,
+        [menuId],
+      );
+      if (menuRows.length === 0) return res.json({ rows: [], nextCursor: null });
+
+      const autoeatId = menuRows[0].autoeatId;
+      ({ rows } = await pool.query(
+        `SELECT id, "createdAt", "updatedAt", message
+         FROM (
+           SELECT
+             am.id,
+             am."createdAt",
+             am."updatedAt",
+             am.message,
+             ROW_NUMBER() OVER (
+               PARTITION BY am."menuId"
+               ORDER BY am."createdAt" DESC
+             ) AS rn
+           FROM "autoeatMessages" am
+           WHERE am.type = 'MENU_FOR_CURATION'
+             AND am."createdAt" > '2025-01-01 00:00:00+00'
+             AND am."menuId" = $1
+             AND am.id > $2
+         ) ranked
+         WHERE rn <= 2
+         ORDER BY id ASC
+         LIMIT $3`,
+        [autoeatId, cursor, pageSize],
+      ));
+    } else {
+      ({ rows } = await pool.query(
+        `SELECT id, "createdAt", "updatedAt", message
+         FROM (
+           SELECT
+             am.id,
+             am."createdAt",
+             am."updatedAt",
+             am.message,
+             ROW_NUMBER() OVER (
+               PARTITION BY am."menuId"
+               ORDER BY am."createdAt" DESC
+             ) AS rn
+           FROM "autoeatMessages" am
+           INNER JOIN menus m ON m."autoeatId" = am."menuId"
+           WHERE am.type = 'MENU_FOR_CURATION'
+             AND am."createdAt" > '2025-01-01 00:00:00+00'
+             AND m."brandId" = $1
+             AND m."status" = 'INCLUDED'
+             AND am.id > $2
+         ) ranked
+         WHERE rn <= 2
+         ORDER BY id ASC
+         LIMIT $3`,
+        [brandId, cursor, pageSize],
+      ));
+    }
 
     const nextCursor = rows.length === pageSize ? rows[rows.length - 1].id : null;
     res.json({ rows, nextCursor });
