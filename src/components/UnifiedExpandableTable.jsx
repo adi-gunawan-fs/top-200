@@ -253,7 +253,6 @@ function ExpandableText({ text }) {
 
 const INLINE_SNAPSHOT_COLUMNS = [
   { key: "type", label: "Type", nowrap: true },
-  { key: "createdAt", label: "Created At", nowrap: true },
   { key: "dishType", label: "Dish Type", narrow: true },
   { key: "courseType", label: "Course Type", narrow: true },
   { key: "diets", label: "Diets", narrow: true },
@@ -315,23 +314,27 @@ function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg }) {
           </td>
         );
       }
-      return (
-        <td key={col.key} className={`px-3 py-2 align-top ${placeholderContent.cls}`}>
-          {col.key === INLINE_SNAPSHOT_COLUMNS[1]?.key && placeholder !== "loading" ? "" : ""}
-        </td>
-      );
+      return <td key={col.key} className={`px-3 py-2 align-top ${placeholderContent.cls}`} />;
     });
   }
 
   return INLINE_SNAPSHOT_COLUMNS.map((col) => {
     if (col.key === "type") {
+      const createdAt = snapshot?.createdAt;
       return (
         <td
           key={col.key}
-          className={`type-sticky-cell sticky z-[5] px-3 py-2 text-xs text-slate-700 align-top whitespace-nowrap relative ${stickyBg ?? "bg-white"}`}
+          className={`type-sticky-cell sticky z-[5] px-3 py-2 align-top whitespace-nowrap relative ${stickyBg ?? "bg-white"}`}
           style={stickyStyle}
         >
-          <SnapshotValue col={col} value={snapshot[col.key]} />
+          <div className="flex flex-col">
+            <span className="text-xs text-slate-700">
+              <SnapshotValue col={col} value={snapshot[col.key]} />
+            </span>
+            {createdAt ? (
+              <span className="text-[10px] text-slate-500">{new Date(createdAt).toLocaleString()}</span>
+            ) : null}
+          </div>
           {renderTypeSeparator()}
         </td>
       );
