@@ -1,7 +1,7 @@
 export function Card({ className = "", children, ...rest }) {
   return (
     <section
-      className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${className}`.trim()}
+      className={`rounded-lg border border-slate-200 bg-white shadow-sm ${className || "overflow-hidden"}`.trim()}
       {...rest}
     >
       {children}

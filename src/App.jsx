@@ -136,7 +136,7 @@ function App() {
   return (
     <WeightsProvider userId={session.user.id}>
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
+      <header className="sticky top-0 z-[200] border-b border-slate-200 bg-white shadow-sm">
         <div className="flex h-14 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-900">
@@ -208,7 +208,7 @@ function App() {
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-[calc(100%+4px)] z-30 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-md">
+                  <div className="absolute right-0 top-[calc(100%+4px)] z-[250] w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-md">
                     <div className="border-b border-slate-100 px-3 py-2">
                       <p className="truncate text-[10px] text-slate-400">{session.user.email}</p>
                     </div>

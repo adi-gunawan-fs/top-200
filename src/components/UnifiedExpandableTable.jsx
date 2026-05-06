@@ -610,7 +610,7 @@ function DishesTable({
   return (
     <div>
     {groupOptions.length > 1 && (
-      <div className="flex items-center gap-0 border-b border-slate-200 bg-white">
+      <div className="relative z-[70] flex items-center gap-0 border-b border-slate-200 bg-white">
         <span className="border-r border-slate-200 px-3 py-2 text-xs font-semibold text-blue-600">Menu titles</span>
         <button
           type="button"
@@ -639,7 +639,7 @@ function DishesTable({
             <svg className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
           </div>
           {dropdownOpen && (
-            <ul className="absolute left-0 top-full z-30 max-h-56 w-full overflow-auto rounded-b border border-t-0 border-slate-200 bg-white shadow-md">
+            <ul className="absolute left-0 top-full z-[100] max-h-56 w-full overflow-auto rounded-b border border-t-0 border-slate-200 bg-white shadow-md">
               {filteredGroupOptions.length === 0 ? (
                 <li className="px-3 py-2 text-xs text-slate-400">No results</li>
               ) : (
