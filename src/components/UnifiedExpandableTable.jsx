@@ -234,18 +234,9 @@ function SnapshotValue({ col, value }) {
   return formatSnapshotValue(value, col.pct);
 }
 
-function SnapshotsCell({ item, afterRecord, stickyBg, isScrolledX }) {
-  const [snapshots, setSnapshots] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (!afterRecord) return;
-    let cancelled = false;
-    fetchDishSnapshots(item.id, afterRecord.createdAt)
-      .then((rows) => { if (!cancelled) setSnapshots(rows); })
-      .catch((err) => { if (!cancelled) setError(err.message); });
-    return () => { cancelled = true; };
-  }, [item.id, afterRecord]);
+function SnapshotsCell({ afterRecord, result, stickyBg, isScrolledX }) {
+  const snapshots = result?.rows ?? null;
+  const error = result?.error ?? null;
 
   const stickyTypeProps = (extraClass = "") => ({
     className: `sticky z-[5] px-3 py-2 align-top relative ${stickyBg ?? "bg-white"}${extraClass ? " " + extraClass : ""}`,
@@ -277,10 +268,9 @@ function SnapshotsCell({ item, afterRecord, stickyBg, isScrolledX }) {
   if (snapshots === null) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
     col.key === "type" ? (
       <td key={col.key} {...stickyTypeProps()} style={{ ...stickyTypeProps().style, ...cellShadow }}>
-        <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
         {renderTypeSeparator()}
       </td>
-    ) : <td key={col.key} className="px-3 py-2">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? <Loader2 className="h-3 w-3 animate-spin text-slate-400" /> : null}</td>
+    ) : <td key={col.key} className="px-3 py-2" />
   ));
   if (snapshots.length === 0) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
     col.key === "type" ? (
@@ -444,6 +434,8 @@ function DishesTable({
   const [page, setPage] = useState(0);
   const [selectedGroupKey, setSelectedGroupKey] = useState("all");
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [snapshotsByDishId, setSnapshotsByDishId] = useState({});
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
 
   // Threshold = sum of column widths between Name (420) and Type:
   // description(360) + menuTitle(360) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 1728
@@ -505,6 +497,32 @@ function DishesTable({
   const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const pageEntries = filteredEntries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  const pageDishIdsKey = pageEntries.map((e) => e.dish.id).join(",");
+  useEffect(() => {
+    if (!afterRecord || pageEntries.length === 0) {
+      setSnapshotsByDishId({});
+      setSnapshotsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSnapshotsLoading(true);
+    setSnapshotsByDishId({});
+    Promise.all(
+      pageEntries.map((entry) =>
+        fetchDishSnapshots(entry.dish.id, afterRecord.createdAt)
+          .then((rows) => ({ id: entry.dish.id, rows, error: null }))
+          .catch((err) => ({ id: entry.dish.id, rows: null, error: err.message }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const map = {};
+      results.forEach((r) => { map[r.id] = r; });
+      setSnapshotsByDishId(map);
+      setSnapshotsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [pageDishIdsKey, afterRecord]);
 
   const [menuTitleSearch, setMenuTitleSearch] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -606,6 +624,16 @@ function DishesTable({
         </button>
       </div>
     )}
+    {snapshotsLoading ? (
+      <div className="flex h-64 items-center justify-center">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+      </div>
+    ) : (
+    <>
     <div onScroll={handleScroll} className="max-h-[80vh] overflow-auto overscroll-y-contain">
       <table className="table-fixed border-collapse" style={{ minWidth: "100%", width: "max-content" }}>
         <colgroup>
@@ -726,7 +754,7 @@ function DishesTable({
                       <span className="text-slate-400">-</span>
                     )}
                   </td>
-                  <SnapshotsCell item={item} afterRecord={afterRecord} stickyBg={stickyBg} isScrolledX={isScrolledX} />
+                  <SnapshotsCell afterRecord={afterRecord} result={snapshotsByDishId[item.id]} stickyBg={stickyBg} isScrolledX={isScrolledX} />
                 </tr>
               );
             })
@@ -759,6 +787,8 @@ function DishesTable({
           </button>
         </div>
       </div>
+    )}
+    </>
     )}
     </div>
   );
