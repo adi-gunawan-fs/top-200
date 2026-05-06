@@ -234,52 +234,46 @@ function SnapshotValue({ col, value }) {
   return formatSnapshotValue(value, col.pct);
 }
 
-function SnapshotsCell({ afterRecord, result, stickyBg, isScrolledX }) {
-  const snapshots = result?.rows ?? null;
-  const error = result?.error ?? null;
-
-  const stickyTypeProps = (extraClass = "") => ({
-    className: `sticky z-[5] px-3 py-2 align-top relative ${stickyBg ?? "bg-white"}${extraClass ? " " + extraClass : ""}`,
-    style: { left: "420px" },
-  });
+// Renders the inline snapshot <td> cells for a single snapshot row (or a placeholder/error/empty state).
+// `snapshot` is the snapshot row object, or null when rendering a placeholder.
+// `placeholder` is one of: "noAfter", "error", "loading", "empty", or null (real snapshot).
+function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg, isScrolledX }) {
+  const cellShadow = isScrolledX ? { boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : undefined;
+  const stickyStyle = { left: "420px", ...cellShadow };
 
   const renderTypeSeparator = () => (
     isScrolledX ? <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} /> : null
   );
 
-  const cellShadow = isScrolledX ? { boxShadow: "8px 0 12px -4px rgba(15, 23, 42, 0.25)" } : undefined;
+  const placeholderContent = (() => {
+    if (placeholder === "noAfter") return { text: "-", cls: "text-slate-400" };
+    if (placeholder === "error") return { text: errorMessage, cls: "text-rose-500 text-xs" };
+    if (placeholder === "loading") return { text: "", cls: "" };
+    if (placeholder === "empty") return { text: "No snapshots", cls: "text-slate-400 text-xs" };
+    return null;
+  })();
 
-  if (!afterRecord) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
-    col.key === "type" ? (
-      <td key={col.key} {...stickyTypeProps("text-slate-400")} style={{ ...stickyTypeProps().style, ...cellShadow }}>
-        -
-        {renderTypeSeparator()}
-      </td>
-    ) : <td key={col.key} className="px-3 py-2 text-slate-400">-</td>
-  ));
-  if (error) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
-    col.key === "type" ? (
-      <td key={col.key} {...stickyTypeProps("text-rose-500 text-xs")} style={{ ...stickyTypeProps().style, ...cellShadow }}>
-        {error}
-        {renderTypeSeparator()}
-      </td>
-    ) : <td key={col.key} className="px-3 py-2 text-rose-500 text-xs">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? error : ""}</td>
-  ));
-  if (snapshots === null) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
-    col.key === "type" ? (
-      <td key={col.key} {...stickyTypeProps()} style={{ ...stickyTypeProps().style, ...cellShadow }}>
-        {renderTypeSeparator()}
-      </td>
-    ) : <td key={col.key} className="px-3 py-2" />
-  ));
-  if (snapshots.length === 0) return INLINE_SNAPSHOT_COLUMNS.map((col) => (
-    col.key === "type" ? (
-      <td key={col.key} {...stickyTypeProps("text-slate-400 text-xs")} style={{ ...stickyTypeProps().style, ...cellShadow }}>
-        No snapshots
-        {renderTypeSeparator()}
-      </td>
-    ) : <td key={col.key} className="px-3 py-2 text-slate-400 text-xs">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? "No snapshots" : ""}</td>
-  ));
+  if (placeholderContent) {
+    return INLINE_SNAPSHOT_COLUMNS.map((col) => {
+      if (col.key === "type") {
+        return (
+          <td
+            key={col.key}
+            className={`sticky z-[5] px-3 py-2 align-top relative ${stickyBg ?? "bg-white"} ${placeholderContent.cls}`}
+            style={stickyStyle}
+          >
+            {placeholderContent.text}
+            {renderTypeSeparator()}
+          </td>
+        );
+      }
+      return (
+        <td key={col.key} className={`px-3 py-2 align-top ${placeholderContent.cls}`}>
+          {col.key === INLINE_SNAPSHOT_COLUMNS[1]?.key && placeholder !== "loading" ? "" : ""}
+        </td>
+      );
+    });
+  }
 
   return INLINE_SNAPSHOT_COLUMNS.map((col) => {
     if (col.key === "type") {
@@ -287,28 +281,16 @@ function SnapshotsCell({ afterRecord, result, stickyBg, isScrolledX }) {
         <td
           key={col.key}
           className={`sticky z-[5] px-3 py-2 text-xs text-slate-700 align-top whitespace-nowrap relative ${stickyBg ?? "bg-white"}`}
-          style={{ left: "420px", ...cellShadow }}
+          style={stickyStyle}
         >
-          <div className="flex flex-col gap-2">
-            {snapshots.map((row, i) => (
-              <div key={row.id ?? i}>
-                <SnapshotValue col={col} value={row[col.key]} />
-              </div>
-            ))}
-          </div>
+          <SnapshotValue col={col} value={snapshot[col.key]} />
           {renderTypeSeparator()}
         </td>
       );
     }
     return (
       <td key={col.key} className={`px-3 py-2 text-xs text-slate-700 align-top${col.nowrap ? " whitespace-nowrap" : col.narrow ? " w-40" : ""}`}>
-        <div className="flex flex-col gap-2">
-          {snapshots.map((row, i) => (
-            <div key={row.id ?? i}>
-              <SnapshotValue col={col} value={row[col.key]} />
-            </div>
-          ))}
-        </div>
+        <SnapshotValue col={col} value={snapshot[col.key]} />
       </td>
     );
   });
@@ -680,7 +662,7 @@ function DishesTable({
               <td colSpan={7 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
-            pageEntries.map(({ dish, menuTitleItem }) => {
+            pageEntries.flatMap(({ dish, menuTitleItem }) => {
               const item = dish;
               const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
                 .filter((field) => !shouldHideChangedField(item, field));
@@ -699,64 +681,95 @@ function DishesTable({
                     ? "bg-rose-50"
                     : "bg-white";
 
-              return (
-                <tr key={`dish-${item.id}`} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
-                  <td className={`sticky left-0 z-10 px-3 py-2 font-medium text-slate-900 relative ${stickyBg}`}>
-                    <div className="flex items-start gap-1.5">
-                      <span className="break-words">{item.name || "-"}</span>
-                    </div>
-                    {showNameLine && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    <span className="break-words text-slate-700">
-                      {dishDescription || <span className="text-slate-400">—</span>}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 align-top">
-                    {menuTitleName || menuTitleDescription ? (
-                      <div className="flex flex-col gap-0.5">
-                        {menuTitleName && <span className="font-medium text-slate-900 break-words">{menuTitleName}</span>}
-                        {menuTitleDescription && <span className="text-slate-500 break-words">{menuTitleDescription}</span>}
-                      </div>
-                    ) : (
-                      <span className="text-slate-400">—</span>
+              const result = snapshotsByDishId[item.id];
+              const snapshots = result?.rows ?? null;
+              const error = result?.error ?? null;
+
+              let placeholder = null;
+              if (!afterRecord) placeholder = "noAfter";
+              else if (error) placeholder = "error";
+              else if (snapshots === null) placeholder = "loading";
+              else if (snapshots.length === 0) placeholder = "empty";
+
+              const snapshotRows = placeholder ? [null] : snapshots;
+              const rowSpan = snapshotRows.length;
+              const rowClass = `border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`;
+
+              return snapshotRows.map((snapshot, snapIdx) => {
+                const isFirst = snapIdx === 0;
+                const isLast = snapIdx === snapshotRows.length - 1;
+                // Hide the inter-snapshot border so a multi-snapshot dish reads as one row block
+                const trClass = isLast ? rowClass : `text-xs text-slate-700 ${rowStyles(item.status)}`;
+
+                return (
+                  <tr key={`dish-${item.id}-${snapshot?.id ?? snapIdx}`} className={trClass}>
+                    {isFirst && (
+                      <>
+                        <td rowSpan={rowSpan} className={`sticky left-0 z-10 px-3 py-2 font-medium text-slate-900 relative align-top ${stickyBg}`}>
+                          <div className="flex items-start gap-1.5">
+                            <span className="break-words">{item.name || "-"}</span>
+                          </div>
+                          {showNameLine && <span aria-hidden="true" className="pointer-events-none absolute right-0 w-px bg-slate-400" style={{ top: "-1px", bottom: "-1px" }} />}
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <span className="break-words text-slate-700">
+                            {dishDescription || <span className="text-slate-400">—</span>}
+                          </span>
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          {menuTitleName || menuTitleDescription ? (
+                            <div className="flex flex-col gap-0.5">
+                              {menuTitleName && <span className="font-medium text-slate-900 break-words">{menuTitleName}</span>}
+                              {menuTitleDescription && <span className="text-slate-500 break-words">{menuTitleDescription}</span>}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ChangeTypeCounts counts={visibleChangeTypeCounts} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <AnalysisStatusCell
+                            shortKey={shortKey}
+                            modelNames={modelNames ?? []}
+                            analysisResultsMap={analysisResultsMap}
+                            runningKeys={runningKeys}
+                            isEligible={isEligible}
+                            weights={weights}
+                            difficultyThreshold={difficultyThreshold}
+                          />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          {isEligible ? (
+                            <AnalysisCell
+                              item={item}
+                              shortKey={shortKey}
+                              job={analysisJobsMap?.[shortKey]}
+                              modelNames={modelNames ?? []}
+                              analysisResultsMap={analysisResultsMap}
+                              runningKeys={runningKeys}
+                              onRunOne={onRunOne}
+                            />
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                      </>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <ChangeTypeCounts counts={visibleChangeTypeCounts} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <AnalysisStatusCell
-                      shortKey={shortKey}
-                      modelNames={modelNames ?? []}
-                      analysisResultsMap={analysisResultsMap}
-                      runningKeys={runningKeys}
-                      isEligible={isEligible}
-                      weights={weights}
-                      difficultyThreshold={difficultyThreshold}
+                    <SnapshotCells
+                      snapshot={snapshot}
+                      placeholder={placeholder}
+                      errorMessage={error}
+                      stickyBg={stickyBg}
+                      isScrolledX={isScrolledX}
                     />
-                  </td>
-                  <td className="px-3 py-2">
-                    {isEligible ? (
-                      <AnalysisCell
-                        item={item}
-                        shortKey={shortKey}
-                        job={analysisJobsMap?.[shortKey]}
-                        modelNames={modelNames ?? []}
-                        analysisResultsMap={analysisResultsMap}
-                        runningKeys={runningKeys}
-                        onRunOne={onRunOne}
-                      />
-                    ) : (
-                      <span className="text-slate-400">-</span>
-                    )}
-                  </td>
-                  <SnapshotsCell afterRecord={afterRecord} result={snapshotsByDishId[item.id]} stickyBg={stickyBg} isScrolledX={isScrolledX} />
-                </tr>
-              );
+                  </tr>
+                );
+              });
             })
           )}
         </tbody>
