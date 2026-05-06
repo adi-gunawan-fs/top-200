@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Database, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useWeights } from "../contexts/WeightsContext";
 import { rowStyles } from "./ui/StatusPill";
 import { Badge } from "./ui/Badge";
@@ -8,7 +8,7 @@ import { Card } from "./ui/Card";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
-import { DishSnapshotsModal } from "./ui/DishSnapshotsModal";
+import { fetchDishSnapshots } from "../lib/dbFetch";
 import { buildHierarchy } from "../utils/hierarchyUtils";
 import { getAnalysisReviewStatus, getAnalysisReviewTone } from "../utils/analysisReview";
 import {
@@ -202,29 +202,67 @@ function AnalysisStatusCell({ shortKey, modelNames, analysisResultsMap, runningK
   );
 }
 
-function SnapshotsCell({ item, afterRecord }) {
-  const [open, setOpen] = useState(false);
-  if (!afterRecord) return <span className="text-slate-400">-</span>;
+const INLINE_SNAPSHOT_COLUMNS = [
+  { key: "type", label: "Type", nowrap: true },
+  { key: "createdAt", label: "Created At", nowrap: true },
+  { key: "dishType", label: "Dish Type", narrow: true },
+  { key: "courseType", label: "Course Type", narrow: true },
+  { key: "diets", label: "Diets", narrow: true },
+  { key: "allergens", label: "Allergens", narrow: true },
+  { key: "mainIngredients", label: "Main Ingredients", wide: true },
+  { key: "choiceIngredients", label: "Choice Ingredients", wide: true },
+  { key: "additionalIngredients", label: "Additional Ingredients", wide: true },
+  { key: "certainty", label: "Certainty", nowrap: true, pct: true },
+  { key: "miscAndChoiceCertainty", label: "Misc & Choice", nowrap: true, pct: true },
+  { key: "dishTypeCertainty", label: "Dish Type Cert.", nowrap: true, pct: true },
+  { key: "courseTypeCertainty", label: "Course Type Cert.", nowrap: true, pct: true },
+  { key: "dietsCertainty", label: "Diets Cert.", nowrap: true, pct: true },
+  { key: "allergensCertainty", label: "Allergens Cert.", nowrap: true, pct: true },
+  { key: "ingredientsCertainty", label: "Ingredients Cert.", nowrap: true, pct: true },
+];
 
-  return (
-    <>
-      <IconButton
-        title="View dish snapshots"
-        aria-label="View dish snapshots"
-        onClick={() => setOpen(true)}
-      >
-        <Database className="h-3.5 w-3.5" />
-      </IconButton>
-      {open ? (
-        <DishSnapshotsModal
-          dishId={item.id}
-          afterDate={afterRecord.createdAt}
-          dishName={item.name}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </>
-  );
+function formatSnapshotValue(value, pct = false) {
+  if (value === null || value === undefined) return <span className="text-slate-400">—</span>;
+  if (Array.isArray(value)) return value.length === 0 ? <span className="text-slate-400">—</span> : value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" && value.includes("T") && value.includes("Z")) return new Date(value).toLocaleString();
+  if (pct && typeof value === "number") return `${(value * 100).toFixed(2)}%`;
+  return String(value);
+}
+
+function SnapshotValue({ col, value }) {
+  return formatSnapshotValue(value, col.pct);
+}
+
+function SnapshotsCell({ item, afterRecord }) {
+  const [snapshots, setSnapshots] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!afterRecord) return;
+    let cancelled = false;
+    fetchDishSnapshots(item.id, afterRecord.createdAt)
+      .then((rows) => { if (!cancelled) setSnapshots(rows); })
+      .catch((err) => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
+  }, [item.id, afterRecord]);
+
+  if (!afterRecord) return INLINE_SNAPSHOT_COLUMNS.map((col) => <td key={col.key} className="px-3 py-2 text-slate-400">-</td>);
+  if (error) return INLINE_SNAPSHOT_COLUMNS.map((col) => <td key={col.key} className="px-3 py-2 text-rose-500 text-xs">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? error : ""}</td>);
+  if (snapshots === null) return INLINE_SNAPSHOT_COLUMNS.map((col) => <td key={col.key} className="px-3 py-2">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? <Loader2 className="h-3 w-3 animate-spin text-slate-400" /> : null}</td>);
+  if (snapshots.length === 0) return INLINE_SNAPSHOT_COLUMNS.map((col) => <td key={col.key} className="px-3 py-2 text-slate-400 text-xs">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? "No snapshots" : ""}</td>);
+
+  return INLINE_SNAPSHOT_COLUMNS.map((col) => (
+    <td key={col.key} className={`px-3 py-2 text-xs text-slate-700 align-top${col.nowrap ? " whitespace-nowrap" : col.narrow ? " w-28" : ""}`}>
+      <div className="flex flex-col gap-2">
+        {snapshots.map((row, i) => (
+          <div key={row.id ?? i}>
+            <SnapshotValue col={col} value={row[col.key]} />
+          </div>
+        ))}
+      </div>
+    </td>
+  ));
 }
 
 // Collect all menu titles in depth-first order (flattened hierarchy), skipping context-only nodes
@@ -496,7 +534,7 @@ function DishesTable({
       </div>
     )}
     <div className="max-h-[80vh] overflow-auto overscroll-y-contain">
-      <table className="min-w-full table-fixed border-collapse">
+      <table className="w-full table-auto border-collapse">
         <colgroup>
           <col className="w-36" />
           <col className="w-[420px]" />
@@ -504,7 +542,7 @@ function DishesTable({
           <col className="w-[320px]" />
           <col className="w-40" />
           <col className="w-72" />
-          <col className="w-24" />
+          {INLINE_SNAPSHOT_COLUMNS.map((col) => <col key={col.key} className={col.wide ? "w-[500px]" : col.narrow ? "w-28" : "w-32"} />)}
         </colgroup>
         <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
           <tr>
@@ -514,13 +552,15 @@ function DishesTable({
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Analysis</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Snapshots</th>
+            {INLINE_SNAPSHOT_COLUMNS.map((col) => (
+              <th key={col.key} className="sticky top-0 z-20 bg-slate-100 px-3 py-2">{col.label}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={6 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
             pageEntries.map(({ dish }) => {
@@ -571,9 +611,7 @@ function DishesTable({
                       <span className="text-slate-400">-</span>
                     )}
                   </td>
-                  <td className="px-3 py-2">
-                    <SnapshotsCell item={item} afterRecord={afterRecord} />
-                  </td>
+                  <SnapshotsCell item={item} afterRecord={afterRecord} />
                 </tr>
               );
             })
