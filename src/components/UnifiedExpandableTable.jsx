@@ -253,7 +253,7 @@ function SnapshotsCell({ item, afterRecord }) {
   if (snapshots.length === 0) return INLINE_SNAPSHOT_COLUMNS.map((col) => <td key={col.key} className="px-3 py-2 text-slate-400 text-xs">{col.key === INLINE_SNAPSHOT_COLUMNS[0].key ? "No snapshots" : ""}</td>);
 
   return INLINE_SNAPSHOT_COLUMNS.map((col) => (
-    <td key={col.key} className={`px-3 py-2 text-xs text-slate-700 align-top${col.nowrap ? " whitespace-nowrap" : col.narrow ? " w-28" : ""}`}>
+    <td key={col.key} className={`px-3 py-2 text-xs text-slate-700 align-top${col.nowrap ? " whitespace-nowrap" : col.narrow ? " w-40" : ""}`}>
       <div className="flex flex-col gap-2">
         {snapshots.map((row, i) => (
           <div key={row.id ?? i}>
@@ -534,15 +534,15 @@ function DishesTable({
       </div>
     )}
     <div className="max-h-[80vh] overflow-auto overscroll-y-contain">
-      <table className="w-full table-auto border-collapse">
+      <table className="table-fixed border-collapse" style={{ minWidth: "100%", width: "max-content" }}>
         <colgroup>
-          <col className="w-36" />
-          <col className="w-[420px]" />
-          <col className="w-60" />
-          <col className="w-[320px]" />
-          <col className="w-40" />
-          <col className="w-72" />
-          {INLINE_SNAPSHOT_COLUMNS.map((col) => <col key={col.key} className={col.wide ? "w-[500px]" : col.narrow ? "w-28" : "w-32"} />)}
+          <col style={{ width: "144px" }} />
+          <col style={{ width: "420px" }} />
+          <col style={{ width: "240px" }} />
+          <col style={{ width: "320px" }} />
+          <col style={{ width: "160px" }} />
+          <col style={{ width: "288px" }} />
+          {INLINE_SNAPSHOT_COLUMNS.map((col) => <col key={col.key} style={{ width: col.wide ? "500px" : col.narrow ? "160px" : "180px" }} />)}
         </colgroup>
         <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
           <tr>
