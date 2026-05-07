@@ -133,26 +133,27 @@ function LargeBrandDishPage({ brand, onBack }) {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
           <table className="min-w-full border-collapse text-xs">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-3 py-2.5 whitespace-nowrap">Dish ID</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Dish Name</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Description</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Menu Title</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Menu Title Desc</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Ingredients</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Diet Descriptors</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Addon Descriptors</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Allergen Descriptors</th>
-                <th className="px-3 py-2.5 whitespace-nowrap">Menu Curator</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish ID</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Name</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Description</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Menu Title</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Menu Title Desc</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Ingredients</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Diet Descriptors</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Addon Descriptors</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Allergen Descriptors</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Type</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Course Type</th>
               </tr>
             </thead>
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={11} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
@@ -176,15 +177,8 @@ function LargeBrandDishPage({ brand, onBack }) {
                       <td className="px-3 py-2">{str(dish.dietDescriptors)}</td>
                       <td className="px-3 py-2">{str(dish.addonDescriptors)}</td>
                       <td className="px-3 py-2">{str(dish.allergenDescriptors)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {link ? (
-                          <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                            Open →
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">{str(dish.dishTypeName)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{str(dish.courseTypeName)}</td>
                     </tr>
                   );
                 })

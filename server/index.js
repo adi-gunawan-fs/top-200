@@ -125,9 +125,13 @@ app.post("/api/brand-dish-details", async (req, res) => {
          d."addonDescriptors"      AS "addonDescriptors",
          d."allergenDescriptors"   AS "allergenDescriptors",
          mt."title"                AS "menuTitleName",
-         mt."description"          AS "menuTitleDescription"
+         mt."description"          AS "menuTitleDescription",
+         dt."name"                 AS "dishTypeName",
+         ct."name"                 AS "courseTypeName"
        FROM "dishes" d
        LEFT JOIN "menuTitles" mt ON mt."id" = d."menuTitleId"
+       LEFT JOIN "dishTypes" dt ON dt."id" = d."dishTypeId"
+       LEFT JOIN "courseTypes" ct ON ct."id" = d."courseTypeId"
        WHERE d."autoeatId" = ANY($1)`,
       [normalized],
     );
