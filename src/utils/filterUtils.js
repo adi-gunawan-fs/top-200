@@ -66,64 +66,6 @@ export function countVisibleStatuses(items) {
   );
 }
 
-function filterHierarchyNodeByStatus(node, selectedStatuses) {
-  const filteredChildren = node.children
-    .map((child) => filterHierarchyNodeByStatus(child, selectedStatuses))
-    .filter(Boolean);
-  const filteredDishes = node.dishes.filter((dish) => selectedStatuses.has(dish.status));
-  const includeSelf = selectedStatuses.has(node.item.status);
-  const keepAsContext = !includeSelf && (filteredChildren.length > 0 || filteredDishes.length > 0);
-
-  if (!includeSelf && !keepAsContext) {
-    return null;
-  }
-
-  return {
-    ...node,
-    children: filteredChildren,
-    dishes: filteredDishes,
-    contextOnly: keepAsContext,
-  };
-}
-
-export function filterHierarchyByStatus(roots, orphanDishes, selectedStatuses) {
-  return {
-    roots: roots
-      .map((node) => filterHierarchyNodeByStatus(node, selectedStatuses))
-      .filter(Boolean),
-    orphanDishes: orphanDishes.filter((dish) => selectedStatuses.has(dish.status)),
-  };
-}
-
-function passesRelevancyFilter(item, selectedRelevancies) {
+export function passesRelevancyFilter(item, selectedRelevancies) {
   return item?.status === "unchanged" || hasVisibleChangedFields(item, selectedRelevancies);
-}
-
-function filterHierarchyNodeByRelevancy(node, selectedRelevancies) {
-  const filteredChildren = node.children
-    .map((child) => filterHierarchyNodeByRelevancy(child, selectedRelevancies))
-    .filter(Boolean);
-  const filteredDishes = node.dishes.filter((dish) => passesRelevancyFilter(dish, selectedRelevancies));
-  const includeSelf = passesRelevancyFilter(node.item, selectedRelevancies);
-  const keepAsContext = !includeSelf && (filteredChildren.length > 0 || filteredDishes.length > 0);
-
-  if (!includeSelf && !keepAsContext) {
-    return null;
-  }
-
-  return {
-    ...node,
-    children: filteredChildren,
-    dishes: filteredDishes,
-    contextOnly: keepAsContext,
-  };
-}
-
-export function filterHierarchyByRelevancy(roots, orphanDishes, selectedRelevancies) {
-  return {
-    roots: roots
-      .map((node) => filterHierarchyNodeByRelevancy(node, selectedRelevancies))
-      .filter(Boolean),
-    orphanDishes: orphanDishes.filter((dish) => passesRelevancyFilter(dish, selectedRelevancies)),
-  };
 }

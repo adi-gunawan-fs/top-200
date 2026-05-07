@@ -9,12 +9,10 @@ import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
 import { fetchDishSnapshots, fetchDishCurationLinks } from "../lib/dbFetch";
-import { buildHierarchy } from "../utils/hierarchyUtils";
 import { getAnalysisReviewStatus, getAnalysisReviewTone } from "../utils/analysisReview";
 import {
-  filterHierarchyByStatus,
-  filterHierarchyByRelevancy,
   filterChangedFieldsByRelevancy,
+  passesRelevancyFilter,
   shouldHideChangedField,
   getVisibleChangeTypeCounts,
 } from "../utils/filterUtils";
@@ -367,112 +365,10 @@ function SnapshotCells({ snapshot, placeholder, errorMessage, stickyBg }) {
   });
 }
 
-// Collect all menu titles in depth-first order (flattened hierarchy), skipping context-only nodes
-function flattenTitles(nodes, depth = 0, out = []) {
-  nodes.forEach((node) => {
-    if (!node.contextOnly) {
-      out.push({ node, depth });
-    }
-    flattenTitles(node.children, depth + 1, out);
-  });
-  return out;
-}
-
-function MenuTitlesTable({ filteredRoots, selectedRelevancySet, analysisResultsMap, analysisJobsMap, runningKeys, onRunOne, eligibleItemKeys, modelNames, weights, difficultyThreshold }) {
-  const titleRows = useMemo(() => flattenTitles(filteredRoots), [filteredRoots]);
-
-  return (
-    <div className="max-h-[40vh] overflow-auto">
-      <table className="min-w-full table-fixed border-collapse">
-        <colgroup>
-          <col className="w-36" />
-          <col className="w-[500px]" />
-          <col className="w-60" />
-          <col className="w-[320px]" />
-          <col className="w-40" />
-          <col className="w-40" />
-        </colgroup>
-        <thead className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-600">
-          <tr>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">ID</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Title</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
-            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Analysis</th>
-          </tr>
-        </thead>
-        <tbody>
-          {titleRows.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">No menu title changes to display.</td>
-            </tr>
-          ) : (
-            titleRows.map(({ node, depth }) => {
-              const item = node.item;
-              const indentPx = depth * 20;
-              const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
-                .filter((field) => !shouldHideChangedField(item, field));
-              const visibleChangeTypeCounts = getVisibleChangeTypeCounts(visibleChangedFields);
-
-              const shortKey = `${item.id}__${item.type}`;
-              const isEligible = eligibleItemKeys?.has(shortKey);
-
-              return (
-                <tr key={`title-${node.id}`} className={`border-b border-slate-100 text-xs text-slate-700 ${rowStyles(item.status)}`}>
-                  <td className="px-3 py-2 font-medium text-slate-900">{item.id}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-start gap-1.5" style={{ paddingLeft: `${indentPx}px` }}>
-                      <span className="font-semibold text-slate-900 break-words">{item.title || "-"}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <ChangeTypeCounts counts={visibleChangeTypeCounts} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <ChangedFieldsCell item={item} selectedRelevancies={selectedRelevancySet} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <AnalysisStatusCell
-                      shortKey={shortKey}
-                      modelNames={modelNames ?? []}
-                      analysisResultsMap={analysisResultsMap}
-                      runningKeys={runningKeys}
-                      isEligible={isEligible}
-                      weights={weights}
-                      difficultyThreshold={difficultyThreshold}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    {isEligible ? (
-                      <AnalysisCell
-                        item={item}
-                        shortKey={shortKey}
-                        job={analysisJobsMap?.[shortKey]}
-                        modelNames={modelNames ?? []}
-                        analysisResultsMap={analysisResultsMap}
-                        runningKeys={runningKeys}
-                        onRunOne={onRunOne}
-                      />
-                    ) : (
-                      <span className="text-slate-400">-</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 const PAGE_SIZE = 20;
 
 function DishesTable({
-  filteredRoots,
-  filteredOrphanDishes,
+  filteredDishes,
   selectedRelevancySet,
   analysisResultsMap,
   analysisJobsMap,
@@ -485,7 +381,6 @@ function DishesTable({
   difficultyThreshold,
 }) {
   const [page, setPage] = useState(0);
-  const [selectedGroupKey, setSelectedGroupKey] = useState("all");
   const tableScrollRef = useRef(null);
   const scrollClassStateRef = useRef({ raf: 0, scrolledX: false, typeStuck: false });
   const [snapshotsByDishId, setSnapshotsByDishId] = useState({});
@@ -529,60 +424,19 @@ function DishesTable({
     };
   }, []);
 
-  // Flat list of dishes in order, each carrying its group info
-  const dishEntries = useMemo(() => {
-    const entries = [];
+  // Reset page when underlying data changes
+  useEffect(() => { setPage(0); }, [filteredDishes]);
 
-    const walkTitles = (node) => {
-      const allDishes = [];
-      const collectDishes = (n) => {
-        n.dishes.forEach((dish) => allDishes.push(dish));
-        n.children.forEach(collectDishes);
-      };
-      collectDishes(node);
-
-      allDishes.forEach((dish) => {
-        entries.push({ dish, menuTitleItem: node.item, groupKey: `group-${node.id}`, groupLabel: node.item.title || `Menu Title ${node.item.id}` });
-      });
-
-      node.children.forEach(walkTitles);
-    };
-
-    filteredRoots.forEach(walkTitles);
-
-    filteredOrphanDishes.forEach((dish) => {
-      entries.push({ dish, menuTitleItem: null, groupKey: "group-orphan", groupLabel: "No Menu Title" });
-    });
-
-    return entries;
-  }, [filteredRoots, filteredOrphanDishes]);
-
-  // Unique menu title options for the filter dropdown
-  const groupOptions = useMemo(() => {
-    const seen = new Map();
-    dishEntries.forEach(({ groupKey, groupLabel }) => {
-      if (!seen.has(groupKey)) seen.set(groupKey, groupLabel);
-    });
-    return Array.from(seen.entries()).map(([key, label]) => ({ key, label }));
-  }, [dishEntries]);
-
-  // Reset page and filter when underlying data changes
-  useEffect(() => { setPage(0); setSelectedGroupKey("all"); }, [dishEntries]);
-
-  const filteredEntries = selectedGroupKey === "all"
-    ? dishEntries
-    : dishEntries.filter((e) => e.groupKey === selectedGroupKey);
-
-  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredDishes.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
-  const pageEntries = filteredEntries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const pageEntries = filteredDishes.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-  const pageDishIdsKey = pageEntries.map((e) => e.dish.id).join(",");
+  const pageDishIdsKey = pageEntries.map((dish) => dish.id).join(",");
   useEffect(() => {
     // If afterRecord already has baked-in snapshots (from CSV export), use them directly
     if (afterRecord?.snapshots) {
       const map = {};
-      pageEntries.forEach(({ dish }) => {
+      pageEntries.forEach((dish) => {
         const rows = afterRecord.snapshots[dish.id];
         map[dish.id] = rows !== undefined ? { rows, error: null } : { rows: [], error: null };
       });
@@ -600,10 +454,10 @@ function DishesTable({
     setSnapshotsLoading(true);
     setSnapshotsByDishId({});
     Promise.all(
-      pageEntries.map((entry) =>
-        fetchDishSnapshots(entry.dish.id)
-          .then((rows) => ({ id: entry.dish.id, rows, error: null }))
-          .catch((err) => ({ id: entry.dish.id, rows: null, error: err.message }))
+      pageEntries.map((dish) =>
+        fetchDishSnapshots(dish.id)
+          .then((rows) => ({ id: dish.id, rows, error: null }))
+          .catch((err) => ({ id: dish.id, rows: null, error: err.message }))
       )
     ).then((results) => {
       if (cancelled) return;
@@ -618,7 +472,7 @@ function DishesTable({
   useEffect(() => {
     let cancelled = false;
     const pairs = pageEntries
-      .map(({ dish }) => ({
+      .map((dish) => ({
         dishId: dish?.id,
         menuAutoeatId: dish?.menuId,
       }))
@@ -642,106 +496,8 @@ function DishesTable({
     return () => { cancelled = true; };
   }, [pageDishIdsKey]);
 
-  const [menuTitleSearch, setMenuTitleSearch] = useState("");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const comboboxRef = useRef(null);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e) => {
-      if (comboboxRef.current && !comboboxRef.current.contains(e.target)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const allOptions = useMemo(() => [{ key: "all", label: "All" }, ...groupOptions], [groupOptions]);
-  const currentIndex = allOptions.findIndex((o) => o.key === selectedGroupKey);
-  const selectedLabel = allOptions[currentIndex]?.label ?? "All";
-
-  const filteredGroupOptions = useMemo(() => {
-    if (!menuTitleSearch.trim()) return allOptions;
-    const q = menuTitleSearch.toLowerCase();
-    return allOptions.filter((o) => o.label.toLowerCase().includes(q));
-  }, [allOptions, menuTitleSearch]);
-
-  function selectGroup(key) {
-    setSelectedGroupKey(key);
-    setPage(0);
-    setMenuTitleSearch("");
-    setDropdownOpen(false);
-  }
-
-  function stepGroup(dir) {
-    const next = currentIndex + dir;
-    if (next >= 0 && next < allOptions.length) {
-      setSelectedGroupKey(allOptions[next].key);
-      setPage(0);
-    }
-  }
-
   return (
     <div>
-    {groupOptions.length > 1 && (
-      <div className="relative z-[70] flex items-center gap-0 border-b border-slate-200 bg-white">
-        <span className="border-r border-slate-200 px-3 py-2 text-xs font-semibold text-blue-600">Menu titles</span>
-        <button
-          type="button"
-          onClick={() => stepGroup(-1)}
-          disabled={currentIndex <= 0}
-          className="border-r border-slate-200 px-2 py-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Previous menu title"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
-        </button>
-        <div ref={comboboxRef} className="relative flex-1">
-          <div className="flex items-center">
-            <input
-              type="text"
-              placeholder={selectedGroupKey === "all" ? "Filter by Menu Titles..." : selectedLabel}
-              value={dropdownOpen ? menuTitleSearch : ""}
-              onFocus={() => setDropdownOpen(true)}
-              onChange={(e) => { setMenuTitleSearch(e.target.value); setDropdownOpen(true); }}
-              className="w-full bg-transparent px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:outline-none"
-            />
-            {!dropdownOpen && (
-              <span className="pointer-events-none absolute left-3 text-xs text-slate-700">
-                {selectedGroupKey === "all" ? <span className="text-slate-400">Filter by Menu Titles...</span> : selectedLabel}
-              </span>
-            )}
-            <svg className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
-          </div>
-          {dropdownOpen && (
-            <ul className="absolute left-0 top-full z-[100] max-h-56 w-full overflow-auto rounded-b border border-t-0 border-slate-200 bg-white shadow-md">
-              {filteredGroupOptions.length === 0 ? (
-                <li className="px-3 py-2 text-xs text-slate-400">No results</li>
-              ) : (
-                filteredGroupOptions.map(({ key, label }) => (
-                  <li
-                    key={key}
-                    onMouseDown={() => selectGroup(key)}
-                    className={`cursor-pointer px-3 py-1.5 text-xs hover:bg-slate-50 ${key === selectedGroupKey ? "font-semibold text-blue-600" : "text-slate-700"}`}
-                  >
-                    {label}
-                  </li>
-                ))
-              )}
-            </ul>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => stepGroup(1)}
-          disabled={currentIndex >= allOptions.length - 1}
-          className="border-l border-slate-200 px-2 py-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Next menu title"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
-        </button>
-      </div>
-    )}
     {snapshotsLoading ? (
       <div className="flex h-64 items-center justify-center">
         <div className="flex items-center gap-1.5">
@@ -808,7 +564,7 @@ function DishesTable({
               <td colSpan={12 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
-            pageEntries.flatMap(({ dish, menuTitleItem }) => {
+            pageEntries.flatMap((dish) => {
               const item = dish;
               const visibleChangedFields = filterChangedFieldsByRelevancy(item.changedFields, selectedRelevancySet)
                 .filter((field) => !shouldHideChangedField(item, field));
@@ -816,8 +572,8 @@ function DishesTable({
               const shortKey = `${item.id}__${item.type}`;
               const isEligible = eligibleItemKeys?.has(shortKey);
               const dishDescription = item.after?.description ?? item.before?.description ?? "";
-              const menuTitleName = menuTitleItem?.title ?? menuTitleItem?.after?.title ?? menuTitleItem?.before?.title ?? "";
-              const menuTitleDescription = menuTitleItem?.after?.description ?? menuTitleItem?.before?.description ?? "";
+              const menuTitleName = item.menuTitleName ?? "";
+              const menuTitleDescription = item.menuTitleDescription ?? "";
               const ingredientFreeText = item.after?.ingredients ?? item.before?.ingredients ?? "";
               const addonDescriptor = formatAddons(item.after?.addons ?? item.before?.addons);
               const dietData = item.after?.diets ?? item.before?.diets;
@@ -950,10 +706,10 @@ function DishesTable({
         </tbody>
       </table>
     </div>
-    {filteredEntries.length > 0 && (
+    {filteredDishes.length > 0 && (
       <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2">
         <span className="text-xs text-slate-500">
-          {`${safePage * PAGE_SIZE + 1}–${Math.min((safePage + 1) * PAGE_SIZE, filteredEntries.length)} of ${filteredEntries.length} dishes`}
+          {`${safePage * PAGE_SIZE + 1}–${Math.min((safePage + 1) * PAGE_SIZE, filteredDishes.length)} of ${filteredDishes.length} dishes`}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -983,7 +739,6 @@ function DishesTable({
 }
 
 export function UnifiedExpandableTable({
-  menuTitleRows,
   dishRows,
   selectedStatuses,
   setSelectedStatuses,
@@ -999,18 +754,12 @@ export function UnifiedExpandableTable({
 }) {
   const { weights, difficultyThreshold } = useWeights();
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
-  const { roots, orphanDishes } = useMemo(
-    () => buildHierarchy(menuTitleRows, dishRows),
-    [menuTitleRows, dishRows],
-  );
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
-  const { roots: statusFilteredRoots, orphanDishes: statusFilteredOrphanDishes } = useMemo(
-    () => filterHierarchyByStatus(roots, orphanDishes, selectedStatusSet),
-    [roots, orphanDishes, selectedStatusSet],
-  );
-  const { roots: filteredRoots, orphanDishes: filteredOrphanDishes } = useMemo(
-    () => filterHierarchyByRelevancy(statusFilteredRoots, statusFilteredOrphanDishes, selectedRelevancySet),
-    [selectedRelevancySet, statusFilteredOrphanDishes, statusFilteredRoots],
+  const filteredDishes = useMemo(
+    () => dishRows
+      .filter((dish) => selectedStatusSet.has(dish.status))
+      .filter((dish) => passesRelevancyFilter(dish, selectedRelevancySet)),
+    [dishRows, selectedStatusSet, selectedRelevancySet],
   );
 
   const toggleStatus = (status) => {
@@ -1070,27 +819,10 @@ export function UnifiedExpandableTable({
       </Card.Toolbar>
 
       <div className="border-b border-slate-200 px-3 py-2">
-        <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Menu Titles</span>
-      </div>
-      <MenuTitlesTable
-        filteredRoots={filteredRoots}
-        selectedRelevancySet={selectedRelevancySet}
-        analysisResultsMap={analysisResultsMap}
-        analysisJobsMap={analysisJobsMap}
-        runningKeys={runningKeys}
-        onRunOne={onRunOne}
-        eligibleItemKeys={eligibleItemKeys}
-        modelNames={modelNames}
-        weights={weights}
-        difficultyThreshold={difficultyThreshold}
-      />
-
-      <div className="border-y border-slate-200 px-3 py-2">
         <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Dishes</span>
       </div>
       <DishesTable
-        filteredRoots={filteredRoots}
-        filteredOrphanDishes={filteredOrphanDishes}
+        filteredDishes={filteredDishes}
         selectedRelevancySet={selectedRelevancySet}
         analysisResultsMap={analysisResultsMap}
         analysisJobsMap={analysisJobsMap}

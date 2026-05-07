@@ -44,9 +44,7 @@ function isExportPlaceholder(value) {
 
 function getExportItemNameByVersion(item, versionKey) {
   const versionItem = versionKey === "before" ? item.before : item.after;
-  const raw = item.type === "dish"
-    ? versionItem?.name ?? null
-    : versionItem?.title ?? null;
+  const raw = versionItem?.name ?? null;
 
   return isExportPlaceholder(raw) ? null : normalizeExportValue(raw);
 }
@@ -83,7 +81,7 @@ function buildChangeField(fields, versionKey) {
 }
 
 export function toBeforeAfterExport(item) {
-  const type = item.type === "dish" ? "dishes" : "menuTitle";
+  const type = "dishes";
   const beforeName = getExportItemNameByVersion(item, "before");
   const afterName = getExportItemNameByVersion(item, "after");
   const relevantFields = getRelevantExportFields(item);
@@ -107,15 +105,10 @@ export function hasRelevantExportChange(item) {
   });
 }
 
-export function buildComparisonExport({ visibleMenuTitleRows, visibleDishRows }) {
-  return [
-    ...visibleMenuTitleRows
-      .filter(hasRelevantExportChange)
-      .map(toBeforeAfterExport),
-    ...visibleDishRows
-      .filter(hasRelevantExportChange)
-      .map(toBeforeAfterExport),
-  ];
+export function buildComparisonExport({ visibleDishRows }) {
+  return visibleDishRows
+    .filter(hasRelevantExportChange)
+    .map(toBeforeAfterExport);
 }
 
 export function downloadExportFile(content, mimeType, filename) {

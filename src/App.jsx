@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Database, KeyRound, LogOut, Settings, Upload, Building2 } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Settings, Upload, Building2 } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
-import BrandPickerPage from "./components/BrandPickerPage";
 import BrandListPage from "./components/BrandListPage";
 import LargeBrandDishPage from "./components/LargeBrandDishPage";
 import UploadSelector from "./components/UploadSelector";
@@ -14,11 +13,9 @@ import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
-import { fetchMenuMessages } from "./lib/dbFetch";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
-const MODE_DB = "db";
 const MODE_LARGE_BRAND = "large-brand";
 
 function App() {
@@ -30,7 +27,6 @@ function App() {
 
   const [mode, setMode] = useState(MODE_CSV);
   const [activeUpload, setActiveUpload] = useState(null);
-  const [activeBrand, setActiveBrand] = useState(null);
   const [selectedLargeBrand, setSelectedLargeBrand] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -80,40 +76,11 @@ function App() {
     parseFile(file);
   }, [parseFile]);
 
-  // Called when user clicks a menu row in BrandPickerPage — navigate immediately then fetch
-  const handleSelectMenuRow = useCallback(async (row) => {
-    setActiveBrand({ id: row.brandId, name: row.brandName });
-    setSelectedGroup(null);
-    setGroups([]);
-    setLoading(true);
-    setError("");
-
-    try {
-      const records = await fetchMenuMessages(row.menuId);
-      if (records.length === 0) {
-        setError(`No messages found for menu ${row.menuId} since Jan 2025.`);
-        setLoading(false);
-        return;
-      }
-
-      const grouper = createMenuGrouper();
-      records.forEach((r) => grouper.addRow(r));
-      const finalGroups = grouper.finalize();
-      setGroups(finalGroups);
-      setSelectedGroup(finalGroups[0] ?? null);
-    } catch (err) {
-      setError(err.message ?? "Failed to fetch messages.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const handleSwitchMode = useCallback((newMode) => {
     setMode(newMode);
     setGroups([]);
     setSelectedGroup(null);
     setError("");
-    setActiveBrand(null);
     setActiveUpload(null);
     setSelectedLargeBrand(null);
   }, []);
@@ -121,7 +88,6 @@ function App() {
   const handleSignOut = useCallback(async () => {
     await signOut();
     setActiveUpload(null);
-    setActiveBrand(null);
     setGroups([]);
     setSelectedGroup(null);
   }, []);
@@ -136,7 +102,6 @@ function App() {
 
   if (!session) return <LoginPage />;
 
-  const showBrandPicker = mode === MODE_DB && activeBrand === null;
   const showBrandList = mode === MODE_LARGE_BRAND;
 
   return (
@@ -167,14 +132,6 @@ function App() {
               </button>
               <button
                 type="button"
-                onClick={() => handleSwitchMode(MODE_DB)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_DB ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-              >
-                <Database className="h-3 w-3" />
-                Database
-              </button>
-              <button
-                type="button"
                 onClick={() => handleSwitchMode(MODE_LARGE_BRAND)}
                 className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_LARGE_BRAND ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
@@ -190,18 +147,6 @@ function App() {
                 onUploadSelect={handleUploadSelect}
                 onFileReady={handleFileReady}
               />
-            ) : null}
-
-            {mode === MODE_DB && activeBrand ? (
-              <button
-                type="button"
-                onClick={() => { setActiveBrand(null); setGroups([]); setSelectedGroup(null); setError(""); }}
-                className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-              >
-                <Database className="h-3 w-3 text-slate-400" />
-                <span className="max-w-[160px] truncate">{activeBrand.name}</span>
-                <span className="text-slate-300">×</span>
-              </button>
             ) : null}
 
             <div className="relative" ref={userMenuRef}>
@@ -270,16 +215,11 @@ function App() {
             session={session}
             onExportDone={(saved) => {
               setMode(MODE_CSV);
-              setActiveBrand(null);
               setSelectedGroup(null);
               handleUploadSelect(saved);
             }}
             onBack={() => {
               setSelectedGroup(null);
-              if (mode === MODE_DB) {
-                setActiveBrand(null);
-                setGroups([]);
-              }
             }}
           />
         ) : showBrandList && selectedLargeBrand ? (
@@ -292,20 +232,10 @@ function App() {
             onBack={() => handleSwitchMode(MODE_CSV)}
             onSelectBrand={(brand) => setSelectedLargeBrand(brand)}
           />
-        ) : showBrandPicker ? (
-          <BrandPickerPage
-          onSelectRow={handleSelectMenuRow}
-          session={session}
-          onExportDone={(saved) => {
-            setMode(MODE_CSV);
-            setActiveBrand(null);
-            handleUploadSelect(saved);
-          }}
-        />
         ) : loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-32">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-blue-500" />
-            <p className="text-sm text-slate-500">Loading {activeBrand?.name}…</p>
+            <p className="text-sm text-slate-500">Loading…</p>
           </div>
         ) : (
           <SummaryTable groups={groups} loading={false} onSelectGroup={setSelectedGroup} />

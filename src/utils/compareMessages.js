@@ -19,20 +19,6 @@ export const CHANGE_TYPE_RULES = {
     ingredients: "Relevant",
     menuTitleId: "Not Relevant",
   },
-  menuTitle: {
-    id: "Not Relevant",
-    diets: "Relevant",
-    title: "Relevant",
-    addons: "Relevant",
-    menuId: "Not Relevant",
-    calories: "Not Relevant",
-    miscInfo: "Not Relevant",
-    parentId: "Not Relevant",
-    allergens: "Relevant",
-    modifiedAt: "Not Relevant",
-    nutritions: "Not Relevant",
-    description: "Relevant",
-  },
 };
 
 export const CHALLENGE_RULES = {
@@ -51,20 +37,6 @@ export const CHALLENGE_RULES = {
     description: "Easy",
     ingredients: "Easy",
     menuTitleId: "Not Relevant",
-  },
-  menuTitle: {
-    id: "Not Relevant",
-    diets: "Easy",
-    title: "Easy",
-    addons: "Hard",
-    menuId: "Not Relevant",
-    calories: "Not Relevant",
-    miscInfo: "Not Relevant",
-    parentId: "Not Relevant",
-    allergens: "Easy",
-    modifiedAt: "Not Relevant",
-    nutritions: "Not Relevant",
-    description: "Easy",
   },
 };
 
@@ -296,25 +268,6 @@ function mergeReason(existing, reason) {
   return `${existing}, ${reason}`;
 }
 
-function ensureDishStatus(target, status, reason) {
-  if (!target) {
-    return;
-  }
-
-  const priority = {
-    deleted: 4,
-    new: 3,
-    updated: 2,
-    unchanged: 0,
-  };
-
-  if (priority[status] > priority[target.status]) {
-    target.status = status;
-  }
-
-  target.reason = mergeReason(target.reason, reason);
-}
-
 export function compareMessages(beforeRecord, afterRecord) {
   const beforeMessage = beforeRecord?.message ?? {};
   const afterMessage = afterRecord?.message ?? {};
@@ -331,48 +284,9 @@ export function compareMessages(beforeRecord, afterRecord) {
 
   const shouldProcess = menuStatus === "updated";
 
-  const titleIds = new Set([
-    ...byId(asArray(beforeMessage.menuTitles)).keys(),
-    ...byId(asArray(afterMessage.menuTitles)).keys(),
-  ]);
-
   const beforeTitlesById = byId(asArray(beforeMessage.menuTitles));
   const afterTitlesById = byId(asArray(afterMessage.menuTitles));
-  const menuTitleChanges = [];
-  const titleStatusById = new Map();
-
-  titleIds.forEach((id) => {
-    const beforeTitle = beforeTitlesById.get(id);
-    const afterTitle = afterTitlesById.get(id);
-    const status = compareModifiedAt(beforeTitle, afterTitle);
-    const rawChangedFields = getChangedFields(beforeTitle, afterTitle);
-    const changedFields = enrichChangedFields(
-      "menuTitle",
-      collapseChangedFieldsByRoot(beforeTitle, afterTitle, rawChangedFields),
-    );
-
-    const item = {
-      ...baseResult(beforeTitle, afterTitle),
-      type: "menuTitle",
-      status,
-      title: afterTitle?.title ?? beforeTitle?.title ?? "-",
-      changedFields,
-      changeTypeCounts: countChangeTypes(changedFields),
-      reason:
-        status === "new"
-          ? "new menu title"
-          : status === "deleted"
-            ? "menu title deleted"
-            : status === "updated"
-              ? "menu title modifiedAt is newer"
-              : "menu title unchanged",
-      requiresCuration: status === "new" || status === "updated",
-    };
-    item.challenge = getItemChallenge(item.changedFields, item.requiresCuration);
-
-    menuTitleChanges.push(item);
-    titleStatusById.set(id, status);
-  });
+  const resolveTitle = (id) => afterTitlesById.get(id) ?? beforeTitlesById.get(id) ?? null;
 
   const beforeDishesById = byId(asArray(beforeMessage.dishes));
   const afterDishesById = byId(asArray(afterMessage.dishes));
@@ -390,13 +304,18 @@ export function compareMessages(beforeRecord, afterRecord) {
       collapseChangedFieldsByRoot(beforeDish, afterDish, rawChangedFields),
     );
 
+    const menuTitleId = String(afterDish?.menuTitleId ?? beforeDish?.menuTitleId ?? "");
+    const parentTitle = resolveTitle(menuTitleId);
+
     const result = {
       ...baseResult(beforeDish, afterDish),
       type: "dish",
       status,
       name: afterDish?.name ?? beforeDish?.name ?? "-",
       menuId: afterDish?.menuId ?? beforeDish?.menuId ?? null,
-      menuTitleId: String(afterDish?.menuTitleId ?? beforeDish?.menuTitleId ?? ""),
+      menuTitleId,
+      menuTitleName: parentTitle?.title ?? "",
+      menuTitleDescription: parentTitle?.description ?? "",
       changedFields,
       changeTypeCounts: countChangeTypes(changedFields),
       reason:
@@ -414,43 +333,7 @@ export function compareMessages(beforeRecord, afterRecord) {
     dishChanges.push(result);
   });
 
-  const hardMenuTitleIds = new Set(
-    menuTitleChanges
-      .filter((item) => item.requiresCuration && item.challenge === "Hard")
-      .map((item) => item.id),
-  );
-
-  dishChanges.forEach((dish) => {
-    const titleStatus = titleStatusById.get(dish.menuTitleId);
-
-    if (titleStatus === "deleted") {
-      ensureDishStatus(dish, "deleted", "parent menu title deleted");
-      dish.requiresCuration = false;
-      return;
-    }
-
-    if (titleStatus === "updated") {
-      if (dish.status !== "deleted" && dish.status !== "new") {
-        ensureDishStatus(dish, "updated", "parent menu title updated");
-      }
-      dish.requiresCuration = dish.status === "new" || dish.status === "updated";
-    }
-
-    if (dish.requiresCuration && hardMenuTitleIds.has(dish.menuTitleId)) {
-      dish.challenge = "Hard";
-      dish.reason = mergeReason(dish.reason, "parent menu title challenge is hard");
-    } else {
-      dish.challenge = getItemChallenge(dish.changedFields, dish.requiresCuration);
-    }
-  });
-
   if (!shouldProcess) {
-    menuTitleChanges.forEach((item) => {
-      item.requiresCuration = false;
-      item.challenge = null;
-      item.reason = mergeReason(item.reason, "ignored: menu.modifiedAt is not newer");
-    });
-
     dishChanges.forEach((item) => {
       item.requiresCuration = false;
       item.challenge = null;
@@ -465,13 +348,6 @@ export function compareMessages(beforeRecord, afterRecord) {
       deleted: dishChanges.filter((item) => item.status === "deleted").length,
       unchanged: dishChanges.filter((item) => item.status === "unchanged").length,
       requiresCuration: dishChanges.filter((item) => item.requiresCuration).length,
-    },
-    menuTitles: {
-      new: menuTitleChanges.filter((item) => item.status === "new").length,
-      updated: menuTitleChanges.filter((item) => item.status === "updated").length,
-      deleted: menuTitleChanges.filter((item) => item.status === "deleted").length,
-      unchanged: menuTitleChanges.filter((item) => item.status === "unchanged").length,
-      requiresCuration: menuTitleChanges.filter((item) => item.requiresCuration).length,
     },
   };
 
@@ -500,7 +376,6 @@ export function compareMessages(beforeRecord, afterRecord) {
             : "ignored: menu.modifiedAt is older than before",
     },
     changes: {
-      menuTitles: menuTitleChanges.sort((a, b) => Number(a.id) - Number(b.id)),
       dishes: dishChanges.sort((a, b) => Number(a.id) - Number(b.id)),
     },
     summary,

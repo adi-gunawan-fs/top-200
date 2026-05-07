@@ -19,17 +19,12 @@ function isResolved(comparison) {
   if (!comparison) return false;
 
   const dishSummary = comparison.summary?.dishes;
-  const titleSummary = comparison.summary?.menuTitles;
 
   return (
     (dishSummary?.deleted ?? 0) === 0
     && (dishSummary?.new ?? 0) === 0
     && (dishSummary?.updated ?? 0) === 0
     && (dishSummary?.requiresCuration ?? 0) === 0
-    && (titleSummary?.deleted ?? 0) === 0
-    && (titleSummary?.new ?? 0) === 0
-    && (titleSummary?.updated ?? 0) === 0
-    && (titleSummary?.requiresCuration ?? 0) === 0
   );
 }
 

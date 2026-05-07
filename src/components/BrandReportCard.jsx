@@ -76,7 +76,6 @@ function ReportSection({ title, children }) {
 }
 
 export function BrandReportCard({
-  menuTitleRows,
   dishRows,
   selectedStatuses,
   selectedRelevancies,
@@ -87,12 +86,6 @@ export function BrandReportCard({
   const selectedStatusSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
   const selectedRelevancySet = useMemo(() => new Set(selectedRelevancies), [selectedRelevancies]);
 
-  const visibleMenuTitles = useMemo(
-    () => menuTitleRows
-      .filter((item) => selectedStatusSet.has(item.status))
-      .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet)),
-    [menuTitleRows, selectedStatusSet, selectedRelevancySet],
-  );
   const visibleDishes = useMemo(
     () => dishRows
       .filter((item) => selectedStatusSet.has(item.status))
@@ -101,8 +94,8 @@ export function BrandReportCard({
   );
 
   const eligibleAll = useMemo(
-    () => [...visibleMenuTitles, ...visibleDishes].filter(hasRelevantExportChange),
-    [visibleMenuTitles, visibleDishes],
+    () => visibleDishes.filter(hasRelevantExportChange),
+    [visibleDishes],
   );
 
   const reviewCounts = useMemo(
@@ -110,10 +103,9 @@ export function BrandReportCard({
     [eligibleAll, analysisResultsMap, modelNames, weights, difficultyThreshold],
   );
   const relevancyCounts = useMemo(
-    () => buildRelevancyCounts([...visibleMenuTitles, ...visibleDishes], selectedRelevancySet),
-    [visibleMenuTitles, visibleDishes, selectedRelevancySet],
+    () => buildRelevancyCounts(visibleDishes, selectedRelevancySet),
+    [visibleDishes, selectedRelevancySet],
   );
-  const menuTitleStatusCounts = countByStatus(visibleMenuTitles);
   const dishStatusCounts = countByStatus(visibleDishes);
 
   const totalAnalyzed = REVIEW_STATUSES.reduce((sum, status) => sum + reviewCounts[status], 0);
@@ -124,7 +116,7 @@ export function BrandReportCard({
     <Card>
       <Card.Header><span>Brand Report</span></Card.Header>
       <Card.Body>
-        <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
           <ReportSection title={`Analysis Review (${totalAnalyzed}/${totalEligible})`}>
             {REVIEW_STATUSES.map((status) => (
               <StatRow
@@ -150,20 +142,6 @@ export function BrandReportCard({
           <ReportSection title={`Field Relevancy (${totalRelevancy})`}>
             <StatRow label="Relevant" value={relevancyCounts.Relevant} />
             <StatRow label="Not Relevant" value={relevancyCounts["Not Relevant"]} />
-          </ReportSection>
-
-          <ReportSection title={`Menu Titles (${visibleMenuTitles.length})`}>
-            {["new", "updated", "deleted"].map((status) => (
-              <StatRow
-                key={status}
-                label={status.charAt(0).toUpperCase() + status.slice(1)}
-                value={
-                  visibleMenuTitles.length > 0
-                    ? `${menuTitleStatusCounts[status]} (${((menuTitleStatusCounts[status] / visibleMenuTitles.length) * 100).toFixed(2)}%)`
-                    : menuTitleStatusCounts[status]
-                }
-              />
-            ))}
           </ReportSection>
 
           <ReportSection title={`Dishes (${visibleDishes.length})`}>

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Play, Loader2, History, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Download, Play, Loader2, History, RefreshCw, ChevronDown } from "lucide-react";
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
@@ -76,6 +76,26 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   const [exporting, setExporting] = useState(false);
   const [exportingSheets, setExportingSheets] = useState(false);
   const [publishedDishIdSet, setPublishedDishIdSet] = useState(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    function handleClickOutside(event) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setExportMenuOpen(false);
+      }
+    }
+    function handleKey(event) {
+      if (event.key === "Escape") setExportMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [exportMenuOpen]);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -174,8 +194,6 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
     if (!publishedDishIdSet) return [];
     return rawDishRows.filter((item) => publishedDishIdSet.has(String(item.id)));
   }, [comparison, rawDishRows, publishedDishIdSet]);
-  const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
-
   useEffect(() => {
     if (!comparison) {
       setPublishedDishIdSet(new Set());
@@ -207,9 +225,8 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
 
   const eligibleItems = useMemo(() => {
     if (!comparison) return [];
-    const allRows = [...menuTitleRows, ...dishRows];
-    return allRows.filter((item) => selectedStatusSet.has(item.status) && hasRelevantExportChange(item));
-  }, [comparison, dishRows, menuTitleRows, selectedStatusSet]);
+    return dishRows.filter((item) => selectedStatusSet.has(item.status) && hasRelevantExportChange(item));
+  }, [comparison, dishRows, selectedStatusSet]);
 
   const eligibleItemKeys = useMemo(
     () => new Set(eligibleItems.map((item) => makeShortKey(item.id, item.type))),
@@ -477,9 +494,8 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   function handleExportJson() {
     if (!comparison) return;
 
-    const visibleMenuTitleRows = menuTitleRows.filter((item) => selectedStatusSet.has(item.status));
     const visibleDishRows = dishRows.filter((item) => selectedStatusSet.has(item.status));
-    const exportPayload = buildComparisonExport({ visibleMenuTitleRows, visibleDishRows });
+    const exportPayload = buildComparisonExport({ visibleDishRows });
     const jsonContent = JSON.stringify(exportPayload, null, 2);
     const safeBrand = String(group.brandName ?? "brand").replace(/[^\w-]+/g, "_");
     const safeMenuId = String(group.menuId ?? "menu").replace(/[^\w-]+/g, "_");
@@ -516,43 +532,71 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
                 <ArrowLeft className="h-3.5 w-3.5" />
                 Back
               </Button>
-              <Button
-                variant="tonal"
-                tone="info"
-                onClick={handleExportJson}
-                disabled={!comparison}
-              >
-                <Download className="h-3.5 w-3.5" />
-                Export JSON
-              </Button>
-              {session ? (
+              <div className="relative inline-flex" ref={exportMenuRef}>
                 <Button
                   variant="tonal"
                   tone="info"
-                  onClick={handleExportToCsv}
-                  disabled={exporting || !isValidSelection}
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                  disabled={!comparison}
+                  aria-haspopup="menu"
+                  aria-expanded={exportMenuOpen}
                 >
-                  {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  {exporting || exportingSheets ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
                   {exporting
                     ? exportSnapshotProgress
                       ? `Fetching snapshots… ${exportSnapshotProgress.done}/${exportSnapshotProgress.total}`
-                      : "Exporting…"
-                    : "Export to CSV"}
+                      : "Exporting CSV…"
+                    : exportingSheets
+                      ? exportSheetsProgress
+                        ? `Exporting Sheets… ${exportSheetsProgress.done}/${exportSheetsProgress.total}`
+                        : "Exporting Sheets…"
+                      : "Export"}
+                  <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
-              ) : null}
-              <Button
-                variant="tonal"
-                tone="info"
-                onClick={handleExportSheets}
-                disabled={!isValidSelection || exportingSheets}
-              >
-                {exportingSheets ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                {exportingSheets
-                  ? exportSheetsProgress
-                    ? `Exporting Sheets… ${exportSheetsProgress.done}/${exportSheetsProgress.total}`
-                    : "Exporting Sheets…"
-                  : "Export Sheets"}
-              </Button>
+                {exportMenuOpen ? (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+                  >
+                    {session ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                        disabled={exporting || !isValidSelection}
+                        onClick={() => { setExportMenuOpen(false); handleExportToCsv(); }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Export to CSV
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                      disabled={!comparison}
+                      onClick={() => { setExportMenuOpen(false); handleExportJson(); }}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export JSON
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                      disabled={!isValidSelection || exportingSheets}
+                      onClick={() => { setExportMenuOpen(false); handleExportSheets(); }}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Export Sheets
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               {exportError ? (
                 <span className="text-xs text-rose-600">{exportError}</span>
               ) : null}
@@ -656,7 +700,6 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
 
         {comparison ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <RulesTooltip itemType="menuTitle" label="Menu Title Rules" align="left" />
             <RulesTooltip itemType="dish" label="Dishes Rules" align="left" />
             <RulesTooltip label="Color Code" align="left" content={<ColorCodeTable />} />
           </div>
@@ -666,7 +709,6 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
       {comparison ? (
         <div className="flex flex-col gap-4">
           <BrandReportCard
-            menuTitleRows={menuTitleRows}
             dishRows={dishRows}
             selectedStatuses={selectedStatuses}
             selectedRelevancies={selectedRelevancies}
@@ -674,7 +716,6 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
             modelNames={BRAINTRUST_MODELS.map((model) => model.name)}
           />
           <UnifiedExpandableTable
-            menuTitleRows={menuTitleRows}
             dishRows={dishRows}
             selectedStatuses={selectedStatuses}
             setSelectedStatuses={setSelectedStatuses}
