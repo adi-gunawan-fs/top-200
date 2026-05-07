@@ -791,7 +791,7 @@ function DishesTable({
                 <th
                   key={col.key}
                   className="type-sticky-cell sticky top-0 z-30 bg-slate-100 px-3 py-2 relative"
-                  style={{ left: "600px" }}
+                  style={{ left: "420px" }}
                 >
                   {col.label}
                   <span aria-hidden="true" className="type-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
