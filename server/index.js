@@ -259,6 +259,125 @@ app.get("/api/dish-snapshots", async (req, res) => {
   }
 });
 
+// POST /api/dish-curation-links
+// Body: { pairs: [{ dishId: "123", menuAutoeatId: "456" }] }
+// Read-only lookup for menu-curation task link per dish.
+app.post("/api/dish-curation-links", async (req, res) => {
+  const pairs = Array.isArray(req.body?.pairs) ? req.body.pairs : [];
+  if (pairs.length === 0) return res.json({ rows: [] });
+
+  const normalizedPairs = pairs
+    .map((pair) => ({
+      dishId: parseInt(pair?.dishId, 10),
+      menuAutoeatId: parseInt(pair?.menuAutoeatId, 10),
+    }))
+    .filter((pair) => Number.isFinite(pair.dishId) && Number.isFinite(pair.menuAutoeatId));
+
+  if (normalizedPairs.length === 0) return res.json({ rows: [] });
+
+  const uniqueAutoeatIds = [...new Set(normalizedPairs.map((pair) => pair.menuAutoeatId))];
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (m."autoeatId")
+         m."autoeatId" AS "menuAutoeatId",
+         mct.id        AS "menuCurationTaskId"
+       FROM menus m
+       LEFT JOIN "menuCurationTasks" mct ON mct."menuId" = m.id
+       WHERE m."autoeatId" = ANY($1)
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+       ORDER BY m."autoeatId", mct.id DESC NULLS LAST`,
+      [uniqueAutoeatIds],
+    );
+
+    const taskByAutoeatId = new Map(
+      rows
+        .filter((row) => row.menuCurationTaskId !== null && row.menuCurationTaskId !== undefined)
+        .map((row) => [String(row.menuAutoeatId), row.menuCurationTaskId]),
+    );
+
+    const out = normalizedPairs.map((pair) => {
+      const taskId = taskByAutoeatId.get(String(pair.menuAutoeatId)) ?? null;
+      const url = taskId
+        ? `https://menu-curator.foodstyles.com/menu-curation-tasks/${taskId}?dishIds%5B0%5D=${pair.dishId}&shouldScrollToDish=true`
+        : null;
+
+      return {
+        dishId: String(pair.dishId),
+        menuAutoeatId: String(pair.menuAutoeatId),
+        menuCurationTaskId: taskId,
+        url,
+      };
+    });
+
+    res.json({ rows: out });
+  } catch (err) {
+    console.error("dish-curation-links error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/published-dishes
+// Body: { dishIds: ["123", "456"] }
+// Read-only lookup: returns autoeat dish IDs that are published in DB.
+app.post("/api/published-dishes", async (req, res) => {
+  const dishIds = Array.isArray(req.body?.dishIds) ? req.body.dishIds : [];
+  if (dishIds.length === 0) return res.json({ dishIds: [] });
+
+  const normalizedDishIds = dishIds
+    .map((id) => parseInt(id, 10))
+    .filter((id) => Number.isFinite(id));
+
+  if (normalizedDishIds.length === 0) return res.json({ dishIds: [] });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT d."autoeatId" AS "dishId"
+       FROM "dishes" d
+       WHERE d."autoeatId" = ANY($1)
+         AND d."isPublished" = true`,
+      [normalizedDishIds],
+    );
+
+    res.json({ dishIds: rows.map((row) => String(row.dishId)) });
+  } catch (err) {
+    console.error("published-dishes error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/brands-list
+// Returns all brands in BRAND_LIST with their autoeatId, menu curator task IDs, and curation status.
+app.get("/api/brands-list", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (b.id)
+         m."autoeatId",
+         b.id        AS "brandId",
+         b.name      AS "brandName",
+         mct.id      AS "menuCurationTaskId",
+         mct."isTierOneDone",
+         mct."isCurationDone",
+         mct."isQaDone",
+         mct."isQcDone"
+       FROM menus m
+       INNER JOIN brands b ON b.id = m."brandId"
+       LEFT JOIN "menuCurationTasks" mct ON mct."menuId" = m.id
+       WHERE m."autoeatId" = ANY($1)
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+       ORDER BY b.id, mct.id DESC NULLS LAST`,
+      [BRAND_IDS],
+    );
+
+    res.json({ rows });
+  } catch (err) {
+    console.error("brands-list error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });

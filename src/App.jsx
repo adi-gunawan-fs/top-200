@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Database, KeyRound, LogOut, Settings, Upload } from "lucide-react";
+import { ChevronDown, Database, KeyRound, LogOut, Settings, Upload, Building2 } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import BrandPickerPage from "./components/BrandPickerPage";
+import BrandListPage from "./components/BrandListPage";
 import UploadSelector from "./components/UploadSelector";
 import { EmptyState } from "./components/ui/EmptyState";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
@@ -12,11 +13,12 @@ import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
-import { fetchMenuMessages } from "./lib/dbFetch";
+import { fetchMenuMessages, streamMessages } from "./lib/dbFetch";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
 const MODE_DB = "db";
+const MODE_LARGE_BRAND = "large-brand";
 
 function App() {
   const [session, setSession] = useState(undefined);
@@ -132,6 +134,7 @@ function App() {
   if (!session) return <LoginPage />;
 
   const showBrandPicker = mode === MODE_DB && activeBrand === null;
+  const showBrandList = mode === MODE_LARGE_BRAND;
 
   return (
     <WeightsProvider userId={session.user.id}>
@@ -166,6 +169,14 @@ function App() {
               >
                 <Database className="h-3 w-3" />
                 Database
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchMode(MODE_LARGE_BRAND)}
+                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_LARGE_BRAND ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              >
+                <Building2 className="h-3 w-3" />
+                Large Brand
               </button>
             </div>
 
@@ -266,6 +277,42 @@ function App() {
                 setActiveBrand(null);
                 setGroups([]);
               }
+            }}
+          />
+        ) : showBrandList ? (
+          <BrandListPage
+            onBack={() => handleSwitchMode(MODE_CSV)}
+            onSelectBrand={(brand) => {
+              setActiveBrand({ id: brand.brandId, name: brand.brandName });
+              setSelectedGroup(null);
+              setGroups([]);
+              setLoading(true);
+              setError("");
+
+              const grouper = createMenuGrouper();
+              streamMessages(
+                { brandId: brand.brandId },
+                {
+                  onRow: (row) => grouper.addRow(row),
+                  onProgress: ({ totalRows, done }) => {
+                    if (done) {
+                      const finalGroups = grouper.finalize();
+                      if (finalGroups.length === 0) {
+                        setError(`No messages found for ${brand.brandName} since Jan 2025.`);
+                        setLoading(false);
+                        return;
+                      }
+                      setGroups(finalGroups);
+                      setSelectedGroup(finalGroups[0] ?? null);
+                      setLoading(false);
+                    }
+                  },
+                },
+              ).catch((err) => {
+                console.error("Failed to fetch messages:", err);
+                setError(err.message ?? "Failed to fetch messages.");
+                setLoading(false);
+              });
             }}
           />
         ) : showBrandPicker ? (

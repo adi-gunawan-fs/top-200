@@ -81,6 +81,47 @@ export async function fetchDishSnapshots(dishId, afterDate) {
   return rows;
 }
 
+export async function fetchDishCurationLinks(dishMenuPairs) {
+  const cleanedPairs = (dishMenuPairs ?? [])
+    .filter((pair) => pair && pair.dishId !== null && pair.dishId !== undefined && pair.menuAutoeatId !== null && pair.menuAutoeatId !== undefined)
+    .map((pair) => ({ dishId: String(pair.dishId), menuAutoeatId: String(pair.menuAutoeatId) }));
+
+  if (cleanedPairs.length === 0) return {};
+
+  const res = await fetch(`${API_BASE}/api/dish-curation-links`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pairs: cleanedPairs }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch dish curation links: ${res.statusText}`);
+  const { rows } = await res.json();
+
+  const map = {};
+  (rows ?? []).forEach((row) => {
+    const key = String(row?.dishId ?? "");
+    if (!key) return;
+    map[key] = row?.url ?? null;
+  });
+  return map;
+}
+
+export async function fetchPublishedDishIds(dishIds) {
+  const cleanedDishIds = (dishIds ?? [])
+    .filter((id) => id !== null && id !== undefined)
+    .map((id) => String(id));
+
+  if (cleanedDishIds.length === 0) return new Set();
+
+  const res = await fetch(`${API_BASE}/api/published-dishes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dishIds: cleanedDishIds }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch published dishes: ${res.statusText}`);
+  const { dishIds: publishedDishIds } = await res.json();
+  return new Set((publishedDishIds ?? []).map((id) => String(id)));
+}
+
 function stringifyCell(value) {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {

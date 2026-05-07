@@ -8,7 +8,7 @@ import { Card } from "./ui/Card";
 import { ChangeTypeCounts } from "./ui/ChangeTypeBadge";
 import { ChangedFieldsModal } from "./ui/ChangedFieldsModal";
 import { AnalysisCompareModal } from "./ui/AnalysisCompareModal";
-import { fetchDishSnapshots } from "../lib/dbFetch";
+import { fetchDishSnapshots, fetchDishCurationLinks } from "../lib/dbFetch";
 import { buildHierarchy } from "../utils/hierarchyUtils";
 import { getAnalysisReviewStatus, getAnalysisReviewTone } from "../utils/analysisReview";
 import {
@@ -489,11 +489,12 @@ function DishesTable({
   const tableScrollRef = useRef(null);
   const scrollClassStateRef = useRef({ raf: 0, scrolledX: false, typeStuck: false });
   const [snapshotsByDishId, setSnapshotsByDishId] = useState({});
+  const [curationUrlByDishId, setCurationUrlByDishId] = useState({});
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
 
   // Threshold = sum of column widths between Name (420) and Type:
-  // description(360) + menuTitle(360) + ingredients(360) + addons(320) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 2408
-  const TYPE_STICKY_THRESHOLD = 2408;
+  // dishId(180) + description(360) + menuTitle(360) + ingredients(360) + addons(320) + diet(240) + allergen(240) + relevancies(240) + changedFields(320) + status(160) + analysis(288) = 3068
+  const TYPE_STICKY_THRESHOLD = 3068;
 
   const updateScrollClasses = (scrollEl) => {
     if (!scrollEl) return;
@@ -614,6 +615,33 @@ function DishesTable({
     return () => { cancelled = true; };
   }, [pageDishIdsKey, afterRecord]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const pairs = pageEntries
+      .map(({ dish }) => ({
+        dishId: dish?.id,
+        menuAutoeatId: dish?.menuId,
+      }))
+      .filter((pair) => pair.dishId !== null && pair.dishId !== undefined && pair.menuAutoeatId !== null && pair.menuAutoeatId !== undefined);
+
+    if (pairs.length === 0) {
+      setCurationUrlByDishId({});
+      return () => { cancelled = true; };
+    }
+
+    fetchDishCurationLinks(pairs)
+      .then((map) => {
+        if (cancelled) return;
+        setCurationUrlByDishId(map);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCurationUrlByDishId({});
+      });
+
+    return () => { cancelled = true; };
+  }, [pageDishIdsKey]);
+
   const [menuTitleSearch, setMenuTitleSearch] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const comboboxRef = useRef(null);
@@ -728,6 +756,7 @@ function DishesTable({
       <table className="table-fixed border-collapse" style={{ minWidth: "100%", width: "max-content" }}>
         <colgroup>
           <col style={{ width: "420px" }} />
+          <col style={{ width: "180px" }} />
           <col style={{ width: "360px" }} />
           <col style={{ width: "360px" }} />
           <col style={{ width: "360px" }} />
@@ -746,6 +775,7 @@ function DishesTable({
               Name
               <span aria-hidden="true" className="name-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
             </th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Dish ID</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Description</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Menu Title</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Ingredient Free Text</th>
@@ -761,7 +791,7 @@ function DishesTable({
                 <th
                   key={col.key}
                   className="type-sticky-cell sticky top-0 z-30 bg-slate-100 px-3 py-2 relative"
-                  style={{ left: "420px" }}
+                  style={{ left: "600px" }}
                 >
                   {col.label}
                   <span aria-hidden="true" className="type-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
@@ -775,7 +805,7 @@ function DishesTable({
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={11 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={12 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
             pageEntries.flatMap(({ dish, menuTitleItem }) => {
@@ -830,6 +860,20 @@ function DishesTable({
                             <span className="break-words">{item.name || "-"}</span>
                           </div>
                           <span aria-hidden="true" className="name-sticky-shadow pointer-events-none absolute right-[-18px] w-[18px]" style={{ top: "-1px", bottom: "-1px" }} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          {curationUrlByDishId[String(item.id)] ? (
+                            <a
+                              href={curationUrlByDishId[String(item.id)]}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-700 hover:text-blue-900 hover:underline break-all"
+                            >
+                              {item.id}
+                            </a>
+                          ) : (
+                            <span className="text-slate-500">{item.id}</span>
+                          )}
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <span className="break-words text-slate-700">

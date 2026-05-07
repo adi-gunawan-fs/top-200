@@ -3,7 +3,7 @@ import { ArrowLeft, Download, Play, Loader2, History, RefreshCw } from "lucide-r
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
-import { buildFilteredDishesExportCsv, exportSingleBrandToCSV } from "../lib/dbFetch";
+import { buildFilteredDishesExportCsv, exportSingleBrandToCSV, fetchPublishedDishIds } from "../lib/dbFetch";
 import { Button, IconButton } from "./ui/Button";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { RecordSelect } from "./ui/RecordSelect";
@@ -75,6 +75,7 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingSheets, setExportingSheets] = useState(false);
+  const [publishedDishIdSet, setPublishedDishIdSet] = useState(null);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -167,8 +168,42 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
     ? "After (updatedAt) must be newer than or equal to Before (updatedAt)."
     : "Select two different records to compare.";
 
-  const dishRows = comparison ? comparison.changes.dishes : [];
+  const rawDishRows = comparison ? comparison.changes.dishes : [];
+  const dishRows = useMemo(() => {
+    if (!comparison) return [];
+    if (!publishedDishIdSet) return [];
+    return rawDishRows.filter((item) => publishedDishIdSet.has(String(item.id)));
+  }, [comparison, rawDishRows, publishedDishIdSet]);
   const menuTitleRows = comparison ? comparison.changes.menuTitles : [];
+
+  useEffect(() => {
+    if (!comparison) {
+      setPublishedDishIdSet(new Set());
+      return;
+    }
+
+    const dishIds = rawDishRows.map((item) => item.id);
+    if (dishIds.length === 0) {
+      setPublishedDishIdSet(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    fetchPublishedDishIds(dishIds)
+      .then((set) => {
+        if (cancelled) return;
+        setPublishedDishIdSet(set);
+      })
+      .catch((err) => {
+        console.error("Failed to load published dish filter:", err);
+        if (cancelled) return;
+        setPublishedDishIdSet(new Set());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [comparison, rawDishRows]);
 
   const eligibleItems = useMemo(() => {
     if (!comparison) return [];
