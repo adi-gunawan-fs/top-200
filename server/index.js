@@ -73,6 +73,71 @@ app.get("/api/overview", async (_req, res) => {
   }
 });
 
+// GET /api/brand-latest-message?brandId=X
+// Returns the single latest autoeatMessage per INCLUDED menu for a brand.
+app.get("/api/brand-latest-message", async (req, res) => {
+  const brandId = parseInt(req.query.brandId, 10);
+  if (!brandId) return res.status(400).json({ error: "brandId required" });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (m."autoeatId")
+         am.id,
+         am."createdAt",
+         am."updatedAt",
+         am.message
+       FROM menus m
+       INNER JOIN "autoeatMessages" am ON am."menuId" = m."autoeatId"
+       WHERE m."brandId" = $1
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+         AND am.type = 'MENU_FOR_CURATION'
+         AND am."createdAt" > '2025-01-01 00:00:00+00'
+       ORDER BY m."autoeatId", am."createdAt" DESC`,
+      [brandId],
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("brand-latest-message error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/brand-dish-details
+// Body: { autoeatDishIds: [123, 456] }
+// Returns full dish data from dishes DB joined with menuTitles, keyed by autoeatId.
+app.post("/api/brand-dish-details", async (req, res) => {
+  const ids = Array.isArray(req.body?.autoeatDishIds) ? req.body.autoeatDishIds : [];
+  if (ids.length === 0) return res.json({ rows: [] });
+
+  const normalized = ids.map((id) => parseInt(id, 10)).filter(Number.isFinite);
+  if (normalized.length === 0) return res.json({ rows: [] });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         d."id"                    AS "dishId",
+         d."autoeatId"             AS "autoeatDishId",
+         d."name"                  AS "dishName",
+         d."description"           AS "dishDescription",
+         d."ingredients"           AS "ingredients",
+         d."dietDescriptors"       AS "dietDescriptors",
+         d."addonDescriptors"      AS "addonDescriptors",
+         d."allergenDescriptors"   AS "allergenDescriptors",
+         mt."title"                AS "menuTitleName",
+         mt."description"          AS "menuTitleDescription"
+       FROM "dishes" d
+       LEFT JOIN "menuTitles" mt ON mt."id" = d."menuTitleId"
+       WHERE d."autoeatId" = ANY($1)`,
+      [normalized],
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("brand-dish-details error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/menu-messages?menuId=X
 // Returns all autoeatMessages for a single menu, newest first.
 app.get("/api/menu-messages", async (req, res) => {

@@ -5,6 +5,7 @@ import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import BrandPickerPage from "./components/BrandPickerPage";
 import BrandListPage from "./components/BrandListPage";
+import LargeBrandDishPage from "./components/LargeBrandDishPage";
 import UploadSelector from "./components/UploadSelector";
 import { EmptyState } from "./components/ui/EmptyState";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
@@ -13,7 +14,7 @@ import { parseCsv } from "./utils/parseCsv";
 import { createMenuGrouper } from "./utils/groupByMenu";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { fetchCsvFile } from "./lib/csvUploads";
-import { fetchMenuMessages, streamMessages } from "./lib/dbFetch";
+import { fetchMenuMessages } from "./lib/dbFetch";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
@@ -30,6 +31,7 @@ function App() {
   const [mode, setMode] = useState(MODE_CSV);
   const [activeUpload, setActiveUpload] = useState(null);
   const [activeBrand, setActiveBrand] = useState(null);
+  const [selectedLargeBrand, setSelectedLargeBrand] = useState(null);
   const [groups, setGroups] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -113,6 +115,7 @@ function App() {
     setError("");
     setActiveBrand(null);
     setActiveUpload(null);
+    setSelectedLargeBrand(null);
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -279,41 +282,15 @@ function App() {
               }
             }}
           />
+        ) : showBrandList && selectedLargeBrand ? (
+          <LargeBrandDishPage
+            brand={selectedLargeBrand}
+            onBack={() => setSelectedLargeBrand(null)}
+          />
         ) : showBrandList ? (
           <BrandListPage
             onBack={() => handleSwitchMode(MODE_CSV)}
-            onSelectBrand={(brand) => {
-              setActiveBrand({ id: brand.brandId, name: brand.brandName });
-              setSelectedGroup(null);
-              setGroups([]);
-              setLoading(true);
-              setError("");
-
-              const grouper = createMenuGrouper();
-              streamMessages(
-                { brandId: brand.brandId },
-                {
-                  onRow: (row) => grouper.addRow(row),
-                  onProgress: ({ totalRows, done }) => {
-                    if (done) {
-                      const finalGroups = grouper.finalize();
-                      if (finalGroups.length === 0) {
-                        setError(`No messages found for ${brand.brandName} since Jan 2025.`);
-                        setLoading(false);
-                        return;
-                      }
-                      setGroups(finalGroups);
-                      setSelectedGroup(finalGroups[0] ?? null);
-                      setLoading(false);
-                    }
-                  },
-                },
-              ).catch((err) => {
-                console.error("Failed to fetch messages:", err);
-                setError(err.message ?? "Failed to fetch messages.");
-                setLoading(false);
-              });
-            }}
+            onSelectBrand={(brand) => setSelectedLargeBrand(brand)}
           />
         ) : showBrandPicker ? (
           <BrandPickerPage
