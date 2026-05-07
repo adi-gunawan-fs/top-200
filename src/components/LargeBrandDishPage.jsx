@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 import { fetchDishCurationLinks } from "../lib/dbFetch";
@@ -40,6 +40,64 @@ function str(v) {
   return String(v);
 }
 
+function curationListToText(items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return items.map((item) => item.name).join(", ");
+}
+
+function escapeCsv(value) {
+  const s = value == null ? "" : String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportToCsv(dishes, curationLinks, brandName) {
+  const headers = [
+    "Dish ID", "Dish Name", "Description",
+    "Menu Title", "Menu Title Desc",
+    "Ingredients", "Diet Descriptors", "Addon Descriptors", "Allergen Descriptors",
+    "Dish Type", "Course Type",
+    "Main Ingredients", "Additional Ingredients", "Choice Ingredients",
+    "Diets", "Allergens",
+  ];
+
+  const rows = dishes.map((dish) => {
+    const link = curationLinks[String(dish.autoeatDishId)] ?? "";
+    const dishIdCell = link
+      ? `"=HYPERLINK(""${link}"",""${dish.dishId}"")"`
+      : escapeCsv(dish.dishId);
+    return [
+      dishIdCell,
+      dish.dishName ?? "",
+      dish.dishDescription ?? "",
+      dish.menuTitleName ?? "",
+      dish.menuTitleDescription ?? "",
+      dish.ingredients ?? "",
+      dish.dietDescriptors ?? "",
+      dish.addonDescriptors ?? "",
+      dish.allergenDescriptors ?? "",
+      dish.dishTypeName ?? "",
+      dish.courseTypeName ?? "",
+      curationListToText(dish.mainIngredients),
+      curationListToText(dish.additionalIngredients),
+      curationListToText(dish.choiceIngredients),
+      curationListToText(dish.diets),
+      curationListToText(dish.allergens),
+    ].map((v, i) => i === 0 ? v : escapeCsv(v)).join(",");
+  });
+
+  const csv = [headers.map(escapeCsv).join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${brandName.replace(/[^\w-]+/g, "_")}_dishes.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function CurationList({ items }) {
   if (!Array.isArray(items) || items.length === 0) return <span className="text-slate-400">—</span>;
   return (
@@ -61,6 +119,8 @@ function LargeBrandDishPage({ brand, onBack }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [curationLinks, setCurationLinks] = useState({});
+  const [exportPrompt, setExportPrompt] = useState(false);
+  const [exportLimit, setExportLimit] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -134,15 +194,59 @@ function LargeBrandDishPage({ brand, onBack }) {
           </div>
         </div>
 
-        <div className="relative max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search dish name…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search dish name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+          {exportPrompt ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1"
+                placeholder={`Limit (max ${visibleDishes.length})`}
+                value={exportLimit}
+                onChange={(e) => setExportLimit(e.target.value)}
+                className="w-36 rounded-md border border-slate-300 bg-white py-1.5 px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+              />
+              <Button
+                variant="tonal"
+                tone="info"
+                onClick={() => {
+                  const limit = exportLimit ? Math.min(parseInt(exportLimit, 10), visibleDishes.length) : visibleDishes.length;
+                  exportToCsv(visibleDishes.slice(0, limit), curationLinks, brand.brandName);
+                  setExportPrompt(false);
+                  setExportLimit("");
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportLimit ? `Export ${Math.min(parseInt(exportLimit, 10) || 0, visibleDishes.length)} rows` : `Export all ${visibleDishes.length}`}
+              </Button>
+              <button
+                type="button"
+                onClick={() => { setExportPrompt(false); setExportLimit(""); }}
+                className="text-xs text-slate-400 hover:text-slate-600"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="tonal"
+              tone="info"
+              onClick={() => setExportPrompt(true)}
+              disabled={visibleDishes.length === 0}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
+          )}
         </div>
       </div>
 
