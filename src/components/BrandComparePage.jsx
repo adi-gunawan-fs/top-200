@@ -3,7 +3,7 @@ import { ArrowLeft, Download, Play, Loader2, History, RefreshCw } from "lucide-r
 import { compareMessages } from "../utils/compareMessages";
 import { parseDateValue } from "../utils/formatDate";
 import { buildComparisonExport, downloadExportFile, toBeforeAfterExport, hasRelevantExportChange } from "../utils/exportComparison";
-import { exportSingleBrandToCSV } from "../lib/dbFetch";
+import { buildFilteredDishesExportCsv, exportSingleBrandToCSV } from "../lib/dbFetch";
 import { Button, IconButton } from "./ui/Button";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { RecordSelect } from "./ui/RecordSelect";
@@ -19,6 +19,7 @@ import { BRAINTRUST_MODELS } from "../lib/braintrust";
 import { fetchAnalysisResults, fetchBestAnalysisPair } from "../lib/analysisResults";
 import { enqueueAnalysisJobs, fetchAnalysisJobs, cancelBulkRun } from "../lib/analysisJobs";
 import { fetchAnalysisBulkRuns } from "../lib/analysisBulkRuns";
+import { hasVisibleChangedFields } from "../utils/filterUtils";
 
 function makeShortKey(itemId, itemType) {
   return `${itemId}__${itemType}`;
@@ -73,6 +74,7 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   const [bulkAnalysisModalOpen, setBulkAnalysisModalOpen] = useState(false);
   const [hadActiveBulkJobs, setHadActiveBulkJobs] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingSheets, setExportingSheets] = useState(false);
 
   const recordsWithIndex = useMemo(
     () => records.map((record, index) => ({ record, index })),
@@ -385,7 +387,9 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
   }
 
   const [exportError, setExportError] = useState("");
+  const [exportSheetsError, setExportSheetsError] = useState("");
   const [exportSnapshotProgress, setExportSnapshotProgress] = useState(null);
+  const [exportSheetsProgress, setExportSheetsProgress] = useState(null);
 
   async function handleExportToCsv() {
     if (exporting || !session || !beforeRecord || !afterRecord) return;
@@ -403,6 +407,35 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
     } finally {
       setExporting(false);
       setExportSnapshotProgress(null);
+    }
+  }
+
+  async function handleExportSheets() {
+    if (exportingSheets || !afterRecord || !beforeRecord) return;
+    setExportingSheets(true);
+    setExportSheetsError("");
+    setExportSheetsProgress(null);
+    try {
+      const filteredDishIds = dishRows
+        .filter((item) => selectedStatusSet.has(item.status))
+        .filter((item) => hasVisibleChangedFields(item, selectedRelevancySet))
+        .map((item) => item.id);
+
+      const { csvContent, filename } = await buildFilteredDishesExportCsv({
+        beforeRecord,
+        afterRecord,
+        brandName: group.brandName,
+        filteredDishIds,
+        onProgress: ({ done, total }) => setExportSheetsProgress({ done, total }),
+      });
+
+      downloadExportFile(csvContent, "text/csv;charset=utf-8;", filename);
+    } catch (err) {
+      console.error("Export sheets failed:", err);
+      setExportSheetsError(err?.message ?? "Export Sheets failed.");
+    } finally {
+      setExportingSheets(false);
+      setExportSheetsProgress(null);
     }
   }
 
@@ -472,8 +505,24 @@ function BrandComparePage({ group, onBack, session, onExportDone }) {
                     : "Export to CSV"}
                 </Button>
               ) : null}
+              <Button
+                variant="tonal"
+                tone="info"
+                onClick={handleExportSheets}
+                disabled={!isValidSelection || exportingSheets}
+              >
+                {exportingSheets ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                {exportingSheets
+                  ? exportSheetsProgress
+                    ? `Exporting Sheets… ${exportSheetsProgress.done}/${exportSheetsProgress.total}`
+                    : "Exporting Sheets…"
+                  : "Export Sheets"}
+              </Button>
               {exportError ? (
                 <span className="text-xs text-rose-600">{exportError}</span>
+              ) : null}
+              {exportSheetsError ? (
+                <span className="text-xs text-rose-600">{exportSheetsError}</span>
               ) : null}
               <Button
                 variant="tonal"

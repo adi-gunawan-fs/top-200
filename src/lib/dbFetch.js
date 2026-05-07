@@ -81,6 +81,120 @@ export async function fetchDishSnapshots(dishId, afterDate) {
   return rows;
 }
 
+function stringifyCell(value) {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) {
+    return value.map((entry) => stringifyCell(entry)).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    return stringifyCell(value.text ?? value.innerText ?? value.name ?? JSON.stringify(value));
+  }
+  return String(value);
+}
+
+function escapeCsvValue(value) {
+  const text = stringifyCell(value);
+  return text.includes(",") || text.includes('"') || text.includes("\n")
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
+}
+
+function findLatestAiSnapshot(rows) {
+  return (rows ?? []).find((row) => String(row?.type ?? "").toUpperCase() === "AI") ?? null;
+}
+
+export async function buildFilteredDishesExportCsv({
+  beforeRecord,
+  afterRecord,
+  brandName,
+  filteredDishIds,
+  onProgress,
+}) {
+  const afterMessage = afterRecord?.message ?? {};
+  const menuTitles = Array.isArray(afterMessage.menuTitles) ? afterMessage.menuTitles : [];
+  const menuTitleById = new Map(menuTitles.map((title) => [String(title?.id ?? ""), title]));
+  const dishes = Array.isArray(afterMessage.dishes) ? afterMessage.dishes : [];
+  const filteredDishIdSet = new Set((filteredDishIds ?? []).map((id) => String(id)));
+  const targetDishes = dishes.filter((dish) => filteredDishIdSet.has(String(dish?.id ?? "")));
+
+  const total = targetDishes.length;
+  let done = 0;
+  const rows = [];
+
+  for (const dish of targetDishes) {
+    const dishId = dish?.id;
+    let latestAiSnapshot = null;
+    if (dishId !== null && dishId !== undefined) {
+      try {
+        const snapshots = await fetchDishSnapshots(dishId, beforeRecord?.createdAt ?? undefined);
+        latestAiSnapshot = findLatestAiSnapshot(snapshots);
+      } catch {
+        latestAiSnapshot = null;
+      }
+    }
+
+    const menuTitle = menuTitleById.get(String(dish?.menuTitleId ?? "")) ?? null;
+    rows.push({
+      brand_name: brandName ?? "",
+      dish_name: dish?.name ?? "",
+      dish_description: dish?.description ?? "",
+      menu_title: menuTitle?.title ?? "",
+      menu_title_description: menuTitle?.description ?? "",
+      ingredient_free_text: dish?.ingredients ?? "",
+      addson_descriptor: dish?.addons ?? [],
+      diet_descriptor: dish?.diets ?? [],
+      allergen_descriptor: dish?.allergens ?? [],
+      dish_type: latestAiSnapshot?.dishType ?? "",
+      course_type: latestAiSnapshot?.courseType ?? "",
+      diets: latestAiSnapshot?.diets ?? [],
+      allergens: latestAiSnapshot?.allergens ?? [],
+      main_ingredients: latestAiSnapshot?.mainIngredients ?? [],
+      choice_ingredients: latestAiSnapshot?.choiceIngredients ?? [],
+      additional_ingredients: latestAiSnapshot?.additionalIngredients ?? [],
+      type: latestAiSnapshot?.type ?? "",
+    });
+
+    done += 1;
+    onProgress?.({ done, total });
+  }
+
+  const columns = [
+    "brand_name",
+    "dish_name",
+    "dish_description",
+    "menu_title",
+    "menu_title_description",
+    "ingredient_free_text",
+    "addson_descriptor",
+    "diet_descriptor",
+    "allergen_descriptor",
+    "dish_type",
+    "course_type",
+    "diets",
+    "allergens",
+    "main_ingredients",
+    "choice_ingredients",
+    "additional_ingredients",
+    "type",
+  ];
+
+  const csvLines = [
+    columns.join(","),
+    ...rows.map((row) => columns.map((column) => escapeCsvValue(row[column])).join(",")),
+  ];
+
+  const safeBrand = String(brandName ?? "brand")
+    .trim()
+    .replace(/[^\w-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "brand";
+  const filename = `${safeBrand}_export_sheets.csv`;
+
+  return {
+    csvContent: csvLines.join("\n"),
+    filename,
+  };
+}
+
 // Builds a CSV from the two selected records (beforeRecord, afterRecord) and saves to Supabase.
 // Fetches all dish snapshots (created after beforeRecord.createdAt) and bakes them into the after row.
 // Returns the saved upload record.
