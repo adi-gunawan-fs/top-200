@@ -734,6 +734,7 @@ function DishesTable({
           <col style={{ width: "320px" }} />
           <col style={{ width: "240px" }} />
           <col style={{ width: "240px" }} />
+          <col style={{ width: "240px" }} />
           <col style={{ width: "320px" }} />
           <col style={{ width: "160px" }} />
           <col style={{ width: "288px" }} />
@@ -750,6 +751,7 @@ function DishesTable({
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Ingredient Free Text</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Addson Descriptor</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Diet Descriptor</th>
+            <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">ALLERGEN DESCRIPTOR</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Relevancies</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Changed Fields</th>
             <th className="sticky top-0 z-20 bg-slate-100 px-3 py-2">Status</th>
@@ -773,7 +775,7 @@ function DishesTable({
         <tbody>
           {pageEntries.length === 0 ? (
             <tr>
-              <td colSpan={10 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
+              <td colSpan={11 + INLINE_SNAPSHOT_COLUMNS.length} className="px-3 py-4 text-xs text-slate-500">No dish changes to display.</td>
             </tr>
           ) : (
             pageEntries.flatMap(({ dish, menuTitleItem }) => {
@@ -789,6 +791,7 @@ function DishesTable({
               const ingredientFreeText = item.after?.ingredients ?? item.before?.ingredients ?? "";
               const addonDescriptor = formatAddons(item.after?.addons ?? item.before?.addons);
               const dietData = item.after?.diets ?? item.before?.diets;
+              const allergenData = item.after?.allergens ?? item.before?.allergens;
 
               const result = snapshotsByDishId[item.id];
               const snapshots = result?.rows ?? null;
@@ -851,6 +854,9 @@ function DishesTable({
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <ExpandableJson data={dietData} />
+                        </td>
+                        <td rowSpan={rowSpan} className="px-3 py-2 align-top">
+                          <ExpandableJson data={allergenData} />
                         </td>
                         <td rowSpan={rowSpan} className="px-3 py-2 align-top">
                           <ChangeTypeCounts counts={visibleChangeTypeCounts} />
