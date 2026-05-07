@@ -124,7 +124,7 @@ app.post("/api/brand-dish-details", async (req, res) => {
          d."dietDescriptors"       AS "dietDescriptors",
          d."addonDescriptors"      AS "addonDescriptors",
          d."allergenDescriptors"   AS "allergenDescriptors",
-         mt."title"                AS "menuTitleName",
+         mt."title"                 AS "menuTitleName",
          mt."description"          AS "menuTitleDescription",
          dt."name"                 AS "dishTypeName",
          ct."name"                 AS "courseTypeName",
@@ -134,7 +134,7 @@ app.post("/api/brand-dish-details", async (req, res) => {
          diets_agg.items           AS "diets",
          allergens_agg.items       AS "allergens"
        FROM "dishes" d
-       LEFT JOIN "menuTitles" mt ON mt."id" = d."menuTitleId"
+       LEFT JOIN "menuTitles" mt ON mt."autoeatId" = d."menuTitleId"
        LEFT JOIN "dishTypes" dt ON dt."id" = d."dishTypeId"
        LEFT JOIN "courseTypes" ct ON ct."id" = d."courseTypeId"
        LEFT JOIN LATERAL (
@@ -157,7 +157,9 @@ app.post("/api/brand-dish-details", async (req, res) => {
          SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', al."name", 'isCurationEnabled', al."isCurationEnabled") ORDER BY al."name") FILTER (WHERE al."id" IS NOT NULL), '[]') AS items
          FROM "dishesAllergens" da JOIN "allergens" al ON al."id" = da."allergenId" WHERE da."dishId" = d."id"
        ) allergens_agg ON true
-       WHERE d."autoeatId" = ANY($1)`,
+       WHERE d."autoeatId" = ANY($1)
+         AND d."isDeleted" IS NOT TRUE
+         AND d."isFake" IS NOT TRUE`,
       [normalized],
     );
     res.json({ rows });

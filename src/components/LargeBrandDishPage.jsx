@@ -7,21 +7,40 @@ import { fetchDishCurationLinks } from "../lib/dbFetch";
 const API_BASE = "http://localhost:3000";
 const PAGE_SIZE = 50;
 
+function buildMenuTitleChain(menuTitleId, menuTitlesById) {
+  const chain = [];
+  let current = menuTitlesById.get(menuTitleId);
+  while (current) {
+    chain.unshift({ title: current.title ?? null, description: current.description ?? null });
+    current = current.parentId != null ? menuTitlesById.get(current.parentId) : null;
+  }
+  return chain;
+}
+
 async function fetchLatestAutoeatDishes(brandId) {
   const res = await fetch(`${API_BASE}/api/brand-latest-message?brandId=${brandId}`);
   if (!res.ok) throw new Error(`Failed to fetch dishes: ${res.statusText}`);
   const { rows } = await res.json();
 
-  // Returns { autoeatDishId -> menuAutoeatId }
+  // Returns { autoeatDishId -> menuAutoeatId } and { autoeatDishId -> menuTitleChain }
   const dishMap = new Map();
+  const menuTitleChains = new Map();
   for (const row of rows) {
     const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
     const menuAutoeatId = message?.menu?.id;
+
+    const menuTitlesById = new Map((message?.menuTitles ?? []).map((mt) => [mt.id, mt]));
+
     for (const dish of message?.dishes ?? []) {
-      if (dish.id != null) dishMap.set(dish.id, menuAutoeatId);
+      if (dish.id != null) {
+        dishMap.set(dish.id, menuAutoeatId);
+        if (dish.menuTitleId != null) {
+          menuTitleChains.set(dish.id, buildMenuTitleChain(dish.menuTitleId, menuTitlesById));
+        }
+      }
     }
   }
-  return dishMap;
+  return { dishMap, menuTitleChains };
 }
 
 async function fetchDishDetails(autoeatDishIds) {
@@ -37,6 +56,8 @@ async function fetchDishDetails(autoeatDishIds) {
 
 function str(v) {
   if (v == null || v === "") return "—";
+  if (Array.isArray(v)) return v.length === 0 ? "—" : JSON.stringify(v);
+  if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
 
@@ -46,7 +67,7 @@ function curationListToText(items) {
 }
 
 function escapeCsv(value) {
-  const s = value == null ? "" : String(value);
+  const s = value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
   if (s.includes(",") || s.includes('"') || s.includes("\n")) {
     return `"${s.replace(/"/g, '""')}"`;
   }
@@ -55,8 +76,8 @@ function escapeCsv(value) {
 
 function exportToCsv(dishes, curationLinks, brandName) {
   const headers = [
-    "Dish ID", "Dish Name", "Description",
-    "Menu Title", "Menu Title Desc",
+    "Brand Name", "Dish ID", "Dish Name", "Description",
+    "Menu Title",
     "Ingredients", "Diet Descriptors", "Addon Descriptors", "Allergen Descriptors",
     "Dish Type", "Course Type",
     "Main Ingredients", "Additional Ingredients", "Choice Ingredients",
@@ -68,24 +89,34 @@ function exportToCsv(dishes, curationLinks, brandName) {
     const dishIdCell = link
       ? `"=HYPERLINK(""${link}"",""${dish.dishId}"")"`
       : escapeCsv(dish.dishId);
+    const chain = dish.menuTitleChain ?? [];
+    const menuTitleCell = escapeCsv(
+      chain
+        .map((mt, i) => {
+          const lines = [`L${i + 1} Title: ${mt.title ?? ""}`];
+          if (mt.description) lines.push(`L${i + 1} Description: ${mt.description}`);
+          return lines.join("\n");
+        })
+        .join("\n\n"),
+    );
     return [
+      escapeCsv(brandName),
       dishIdCell,
-      dish.dishName ?? "",
-      dish.dishDescription ?? "",
-      dish.menuTitleName ?? "",
-      dish.menuTitleDescription ?? "",
-      dish.ingredients ?? "",
-      dish.dietDescriptors ?? "",
-      dish.addonDescriptors ?? "",
-      dish.allergenDescriptors ?? "",
-      dish.dishTypeName ?? "",
-      dish.courseTypeName ?? "",
-      curationListToText(dish.mainIngredients),
-      curationListToText(dish.additionalIngredients),
-      curationListToText(dish.choiceIngredients),
-      curationListToText(dish.diets),
-      curationListToText(dish.allergens),
-    ].map((v, i) => i === 0 ? v : escapeCsv(v)).join(",");
+      escapeCsv(dish.dishName ?? ""),
+      escapeCsv(dish.dishDescription ?? ""),
+      menuTitleCell,
+      escapeCsv(dish.ingredients ?? ""),
+      escapeCsv(dish.dietDescriptors ?? ""),
+      escapeCsv(dish.addonDescriptors ?? ""),
+      escapeCsv(dish.allergenDescriptors ?? ""),
+      escapeCsv(dish.dishTypeName ?? ""),
+      escapeCsv(dish.courseTypeName ?? ""),
+      escapeCsv(curationListToText(dish.mainIngredients)),
+      escapeCsv(curationListToText(dish.additionalIngredients)),
+      escapeCsv(curationListToText(dish.choiceIngredients)),
+      escapeCsv(curationListToText(dish.diets)),
+      escapeCsv(curationListToText(dish.allergens)),
+    ].join(",");
   });
 
   const csv = [headers.map(escapeCsv).join(","), ...rows].join("\n");
@@ -96,6 +127,20 @@ function exportToCsv(dishes, curationLinks, brandName) {
   a.download = `${brandName.replace(/[^\w-]+/g, "_")}_dishes.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function MenuTitleChain({ chain }) {
+  if (!Array.isArray(chain) || chain.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="flex flex-col gap-1">
+      {chain.map((mt, idx) => (
+        <div key={idx}>
+          <div className="font-semibold text-slate-800">{mt.title ?? "—"}</div>
+          {mt.description && <div className="text-slate-500 text-[11px]">{mt.description}</div>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function CurationList({ items }) {
@@ -127,7 +172,7 @@ function LargeBrandDishPage({ brand, onBack }) {
     setError("");
 
     fetchLatestAutoeatDishes(brand.brandId)
-      .then(async (dishMap) => {
+      .then(async ({ dishMap, menuTitleChains }) => {
         if (dishMap.size === 0) {
           setDishes([]);
           return;
@@ -136,14 +181,13 @@ function LargeBrandDishPage({ brand, onBack }) {
         const autoeatIds = [...dishMap.keys()];
         const details = await fetchDishDetails(autoeatIds);
 
-        // Attach menuAutoeatId to each dish detail row
         const enriched = details.map((d) => ({
           ...d,
           menuAutoeatId: dishMap.get(d.autoeatDishId),
+          menuTitleChain: menuTitleChains.get(d.autoeatDishId) ?? [],
         }));
         setDishes(enriched);
 
-        // Pass autoeatDishId so the server can look up dishes.id for the URL
         const pairs = enriched.map((d) => ({
           dishId: String(d.autoeatDishId),
           menuAutoeatId: String(d.menuAutoeatId),
@@ -259,7 +303,6 @@ function LargeBrandDishPage({ brand, onBack }) {
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Name</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Description</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Menu Title</th>
-                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Menu Title Desc</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Ingredients</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Diet Descriptors</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Addon Descriptors</th>
@@ -276,7 +319,7 @@ function LargeBrandDishPage({ brand, onBack }) {
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={16} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
@@ -294,8 +337,7 @@ function LargeBrandDishPage({ brand, onBack }) {
                       </td>
                       <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{str(dish.dishName)}</td>
                       <td className="px-3 py-2 max-w-xs text-slate-600">{str(dish.dishDescription)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{str(dish.menuTitleName)}</td>
-                      <td className="px-3 py-2 max-w-xs text-slate-600">{str(dish.menuTitleDescription)}</td>
+                      <td className="px-3 py-2 min-w-[160px]"><MenuTitleChain chain={dish.menuTitleChain} /></td>
                       <td className="px-3 py-2">{str(dish.ingredients)}</td>
                       <td className="px-3 py-2">{str(dish.dietDescriptors)}</td>
                       <td className="px-3 py-2">{str(dish.addonDescriptors)}</td>
