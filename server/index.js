@@ -277,30 +277,45 @@ app.post("/api/dish-curation-links", async (req, res) => {
 
   const uniqueAutoeatIds = [...new Set(normalizedPairs.map((pair) => pair.menuAutoeatId))];
 
+  const uniqueDishAutoeatIds = [...new Set(normalizedPairs.map((pair) => pair.dishId))];
+
   try {
-    const { rows } = await pool.query(
-      `SELECT DISTINCT ON (m."autoeatId")
-         m."autoeatId" AS "menuAutoeatId",
-         mct.id        AS "menuCurationTaskId"
-       FROM menus m
-       LEFT JOIN "menuCurationTasks" mct ON mct."menuId" = m.id
-       WHERE m."autoeatId" = ANY($1)
-         AND m."status" = 'INCLUDED'
-         AND m."isPublished" = true
-       ORDER BY m."autoeatId", mct.id DESC NULLS LAST`,
-      [uniqueAutoeatIds],
-    );
+    const [menuRows, dishRows] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT ON (m."autoeatId")
+           m."autoeatId" AS "menuAutoeatId",
+           mct.id        AS "menuCurationTaskId"
+         FROM menus m
+         LEFT JOIN "menuCurationTasks" mct ON mct."menuId" = m.id
+         WHERE m."autoeatId" = ANY($1)
+           AND m."status" = 'INCLUDED'
+           AND m."isPublished" = true
+         ORDER BY m."autoeatId", mct.id DESC NULLS LAST`,
+        [uniqueAutoeatIds],
+      ),
+      pool.query(
+        `SELECT d."autoeatId", d."id" AS "dishDbId"
+         FROM "dishes" d
+         WHERE d."autoeatId" = ANY($1)`,
+        [uniqueDishAutoeatIds],
+      ),
+    ]);
 
     const taskByAutoeatId = new Map(
-      rows
+      menuRows.rows
         .filter((row) => row.menuCurationTaskId !== null && row.menuCurationTaskId !== undefined)
         .map((row) => [String(row.menuAutoeatId), row.menuCurationTaskId]),
     );
 
+    const dbIdByAutoeatId = new Map(
+      dishRows.rows.map((row) => [String(row.autoeatId), row.dishDbId]),
+    );
+
     const out = normalizedPairs.map((pair) => {
       const taskId = taskByAutoeatId.get(String(pair.menuAutoeatId)) ?? null;
+      const dishDbId = dbIdByAutoeatId.get(String(pair.dishId)) ?? pair.dishId;
       const url = taskId
-        ? `https://menu-curator.foodstyles.com/menu-curation-tasks/${taskId}?dishIds%5B0%5D=${pair.dishId}&shouldScrollToDish=true`
+        ? `https://menu-curator.foodstyles.com/menu-curation-tasks/${taskId}?dishIds%5B0%5D=${dishDbId}&shouldScrollToDish=true`
         : null;
 
       return {
@@ -336,7 +351,7 @@ app.post("/api/published-dishes", async (req, res) => {
       `SELECT DISTINCT d."autoeatId" AS "dishId"
        FROM "dishes" d
        WHERE d."autoeatId" = ANY($1)
-         AND d."isPublished" = true`,
+         AND d."isEnabled" = true`,
       [normalizedDishIds],
     );
 
