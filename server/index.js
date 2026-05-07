@@ -127,11 +127,36 @@ app.post("/api/brand-dish-details", async (req, res) => {
          mt."title"                AS "menuTitleName",
          mt."description"          AS "menuTitleDescription",
          dt."name"                 AS "dishTypeName",
-         ct."name"                 AS "courseTypeName"
+         ct."name"                 AS "courseTypeName",
+         main_ing.items            AS "mainIngredients",
+         add_ing.items             AS "additionalIngredients",
+         choice_ing.items          AS "choiceIngredients",
+         diets_agg.items           AS "diets",
+         allergens_agg.items       AS "allergens"
        FROM "dishes" d
        LEFT JOIN "menuTitles" mt ON mt."id" = d."menuTitleId"
        LEFT JOIN "dishTypes" dt ON dt."id" = d."dishTypeId"
        LEFT JOIN "courseTypes" ct ON ct."id" = d."courseTypeId"
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', i."name", 'isCurationEnabled', i."isCurationEnabled") ORDER BY i."name") FILTER (WHERE i."id" IS NOT NULL), '[]') AS items
+         FROM "dishesMainIngredients" dmi JOIN "ingredients" i ON i."id" = dmi."ingredientId" WHERE dmi."dishId" = d."id"
+       ) main_ing ON true
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', i."name", 'isCurationEnabled', i."isCurationEnabled") ORDER BY i."name") FILTER (WHERE i."id" IS NOT NULL), '[]') AS items
+         FROM "dishesAdditionalIngredients" dai JOIN "ingredients" i ON i."id" = dai."ingredientId" WHERE dai."dishId" = d."id"
+       ) add_ing ON true
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', i."name", 'isCurationEnabled', i."isCurationEnabled") ORDER BY i."name") FILTER (WHERE i."id" IS NOT NULL), '[]') AS items
+         FROM "dishesChoiceIngredients" dci JOIN "ingredients" i ON i."id" = dci."ingredientId" WHERE dci."dishId" = d."id"
+       ) choice_ing ON true
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', di."name", 'isCurationEnabled', di."isCurationEnabled") ORDER BY di."name") FILTER (WHERE di."id" IS NOT NULL), '[]') AS items
+         FROM "dishesDiets" dd JOIN "diets" di ON di."id" = dd."dietId" WHERE dd."dishId" = d."id"
+       ) diets_agg ON true
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT('name', al."name", 'isCurationEnabled', al."isCurationEnabled") ORDER BY al."name") FILTER (WHERE al."id" IS NOT NULL), '[]') AS items
+         FROM "dishesAllergens" da JOIN "allergens" al ON al."id" = da."allergenId" WHERE da."dishId" = d."id"
+       ) allergens_agg ON true
        WHERE d."autoeatId" = ANY($1)`,
       [normalized],
     );

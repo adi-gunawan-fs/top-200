@@ -40,6 +40,20 @@ function str(v) {
   return String(v);
 }
 
+function CurationList({ items }) {
+  if (!Array.isArray(items) || items.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <span>
+      {items.map((item, idx) => (
+        <span key={idx}>
+          {idx > 0 && <span className="text-slate-400">, </span>}
+          <span className={item.isCurationEnabled === false ? "text-slate-300" : ""}>{item.name}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function LargeBrandDishPage({ brand, onBack }) {
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -148,12 +162,17 @@ function LargeBrandDishPage({ brand, onBack }) {
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Allergen Descriptors</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Type</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Course Type</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Main Ingredients</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Additional Ingredients</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Choice Ingredients</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Diets</th>
+                <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Allergens</th>
               </tr>
             </thead>
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={16} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
@@ -179,6 +198,11 @@ function LargeBrandDishPage({ brand, onBack }) {
                       <td className="px-3 py-2">{str(dish.allergenDescriptors)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{str(dish.dishTypeName)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{str(dish.courseTypeName)}</td>
+                      <td className="px-3 py-2"><CurationList items={dish.mainIngredients} /></td>
+                      <td className="px-3 py-2"><CurationList items={dish.additionalIngredients} /></td>
+                      <td className="px-3 py-2"><CurationList items={dish.choiceIngredients} /></td>
+                      <td className="px-3 py-2"><CurationList items={dish.diets} /></td>
+                      <td className="px-3 py-2"><CurationList items={dish.allergens} /></td>
                     </tr>
                   );
                 })
