@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
+import { Modal } from "./ui/Modal";
 import { fetchDishCurationLinks } from "../lib/dbFetch";
 
 const API_BASE = "http://localhost:3000";
@@ -9,12 +10,14 @@ const PAGE_SIZE = 50;
 
 const STATUS_NEW = "new";
 const STATUS_UPDATED = "updated";
+const STATUS_REGEX = "regex";
 const STATUS_DELETED = "deleted";
 const STATUS_NO_CHANGE = "no-change";
 
 const STATUS_LABEL = {
   [STATUS_NEW]: "New",
   [STATUS_UPDATED]: "Updated",
+  [STATUS_REGEX]: "Regex Changes",
   [STATUS_DELETED]: "Deleted",
   [STATUS_NO_CHANGE]: "No Change",
 };
@@ -22,6 +25,7 @@ const STATUS_LABEL = {
 const STATUS_ROW_CLASS = {
   [STATUS_NEW]: "bg-emerald-50 hover:bg-emerald-100",
   [STATUS_UPDATED]: "bg-amber-50 hover:bg-amber-100",
+  [STATUS_REGEX]: "bg-blue-50 hover:bg-blue-100",
   [STATUS_DELETED]: "bg-rose-50 hover:bg-rose-100",
   [STATUS_NO_CHANGE]: "bg-slate-50 hover:bg-slate-100",
 };
@@ -87,7 +91,7 @@ async function fetchBrandSnapshotAsOf(brandId, asOf) {
 
   const dishMap = new Map();
   const menuTitleChains = new Map();
-  const dishModifiedAt = new Map();
+  const dishById = new Map();
   for (const row of rows) {
     const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
     const menuAutoeatId = message?.menu?.id;
@@ -96,23 +100,123 @@ async function fetchBrandSnapshotAsOf(brandId, asOf) {
     for (const dish of message?.dishes ?? []) {
       if (dish.id != null) {
         dishMap.set(dish.id, menuAutoeatId);
-        dishModifiedAt.set(dish.id, dish.modifiedAt ?? null);
+        dishById.set(dish.id, dish);
         if (dish.menuTitleId != null) {
           menuTitleChains.set(dish.id, buildMenuTitleChain(dish.menuTitleId, menuTitlesById));
         }
       }
     }
   }
-  return { dishMap, menuTitleChains, dishModifiedAt };
+  return { dishMap, menuTitleChains, dishById };
 }
 
-function computeDishStatus(beforeMod, afterMod) {
-  const hasBefore = beforeMod != null;
-  const hasAfter = afterMod != null;
+function normalizeText(value) {
+  if (value == null) return "";
+  let s = String(value);
+  // Unicode normalization (NFKC folds compatibility forms)
+  s = s.normalize("NFKC");
+  // Smart quotes / dashes / NBSP → ASCII equivalents
+  s = s
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[“”„‟″]/g, '"')
+    .replace(/[–—―−]/g, "-")
+    .replace(/[   ]/g, " ");
+  // Strip HTML tags
+  s = s.replace(/<[^>]*>/g, "");
+  // Decode common HTML entities
+  s = s
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+  // Unescape JSON-style escapes
+  s = s.replace(/\\\//g, "/").replace(/\\"/g, '"').replace(/\\'/g, "'");
+  // Strip decorative / formatting symbols and emoji
+  s = s.replace(/[*_~`#>•·●◦▪■□◆◇★☆♦♣♥♠※]/g, "");
+  s = s.replace(/[\p{Extended_Pictographic}]/gu, "");
+  // Strip all punctuation
+  s = s.replace(/[\p{P}\p{S}]/gu, "");
+  // Collapse all whitespace (incl. \r, \n, \t) into a single space
+  s = s.replace(/\s+/g, " ").trim();
+  // Lowercase
+  return s.toLowerCase();
+}
+
+function isEmptyish(value) {
+  if (value == null) return true;
+  if (typeof value === "string") return normalizeText(value) === "";
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
+}
+
+function deepNormalize(value) {
+  if (isEmptyish(value)) return null;
+  if (typeof value === "string") return normalizeText(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    const items = value.map(deepNormalize).filter((v) => v !== null);
+    if (items.length === 0) return null;
+    // Order-insensitive comparison: sort by canonical JSON
+    const sorted = items
+      .map((v) => JSON.stringify(v))
+      .sort()
+      .map((s) => JSON.parse(s));
+    return sorted;
+  }
+  if (typeof value === "object") {
+    const out = {};
+    for (const key of Object.keys(value).sort()) {
+      const norm = deepNormalize(value[key]);
+      if (norm !== null) out[key] = norm;
+    }
+    return Object.keys(out).length === 0 ? null : out;
+  }
+  return value;
+}
+
+// modifiedAt is a timestamp; ignore it entirely when comparing content
+const IGNORED_DISH_KEYS = new Set(["modifiedAt"]);
+
+function canonicalKey(value) {
+  return JSON.stringify(deepNormalize(value));
+}
+
+function diffDishFields(beforeDish, afterDish) {
+  const keys = new Set([
+    ...Object.keys(beforeDish ?? {}),
+    ...Object.keys(afterDish ?? {}),
+  ]);
+  const changed = [];
+  let allRegex = true;
+  for (const key of keys) {
+    if (IGNORED_DISH_KEYS.has(key)) continue;
+    const b = beforeDish?.[key];
+    const a = afterDish?.[key];
+    if (JSON.stringify(b) === JSON.stringify(a)) continue;
+    const regexEquivalent = canonicalKey(b) === canonicalKey(a);
+    if (!regexEquivalent) allRegex = false;
+    changed.push({ field: key, before: b, after: a, regexEquivalent });
+  }
+  return { changed, allRegex: allRegex && changed.length > 0 };
+}
+
+function computeDishStatus(beforeDish, afterDish) {
+  const hasBefore = beforeDish != null;
+  const hasAfter = afterDish != null;
   if (!hasBefore && hasAfter) return STATUS_NEW;
   if (hasBefore && !hasAfter) return STATUS_DELETED;
   if (!hasBefore && !hasAfter) return STATUS_NO_CHANGE;
-  return beforeMod === afterMod ? STATUS_NO_CHANGE : STATUS_UPDATED;
+
+  const beforeMod = beforeDish.modifiedAt ?? null;
+  const afterMod = afterDish.modifiedAt ?? null;
+  if (beforeMod === afterMod) return STATUS_NO_CHANGE;
+
+  const { changed, allRegex } = diffDishFields(beforeDish, afterDish);
+  if (changed.length === 0) return STATUS_NO_CHANGE;
+  return allRegex ? STATUS_REGEX : STATUS_UPDATED;
 }
 
 function formatTimestamp(iso) {
@@ -235,11 +339,173 @@ function CurationList({ items }) {
   );
 }
 
+function detectRegexCategories(before, after) {
+  const a = before == null ? "" : typeof before === "string" ? before : JSON.stringify(before);
+  const b = after == null ? "" : typeof after === "string" ? after : JSON.stringify(after);
+  const tags = [];
+
+  if (a !== b && a.replace(/\s+/g, " ").trim() !== b.replace(/\s+/g, " ").trim()) {
+    // whitespace will also be flagged; check separately below
+  }
+  if (/\s{2,}|^\s|\s$|\t/.test(a) !== /\s{2,}|^\s|\s$|\t/.test(b) || a.replace(/\s+/g, "") === b.replace(/\s+/g, "") && a !== b) {
+    tags.push("Whitespace");
+  }
+  if (/[\r\n]/.test(a) !== /[\r\n]/.test(b)) tags.push("Line breaks");
+  if (a.toLowerCase() === b.toLowerCase() && a !== b) tags.push("Capitalization");
+  if (a.replace(/[\p{P}\p{S}]/gu, "") === b.replace(/[\p{P}\p{S}]/gu, "") && a !== b) tags.push("Punctuation/Symbols");
+  if (a.normalize("NFKC") === b.normalize("NFKC") && a !== b) tags.push("Unicode");
+  if (/<[^>]+>|&[a-z]+;/i.test(a) !== /<[^>]+>|&[a-z]+;/i.test(b)) tags.push("HTML/Markup");
+  if (/\\["/'\\]/.test(a) !== /\\["/'\\]/.test(b)) tags.push("Escaping");
+  if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+    const sa = [...before].map((v) => JSON.stringify(v)).sort().join("|");
+    const sb = [...after].map((v) => JSON.stringify(v)).sort().join("|");
+    if (sa === sb && JSON.stringify(before) !== JSON.stringify(after)) tags.push("Reordered");
+  }
+  if (isEmptyish(before) && isEmptyish(after) && JSON.stringify(before) !== JSON.stringify(after)) {
+    tags.push("Null/empty equivalence");
+  }
+
+  return [...new Set(tags)];
+}
+
+function formatDiffValue(v) {
+  if (v == null) return "∅ (null)";
+  if (v === "") return '"" (empty)';
+  if (Array.isArray(v) || typeof v === "object") return JSON.stringify(v, null, 2);
+  return String(v);
+}
+
+// Word-level diff using longest common subsequence.
+// Splits by whitespace boundaries but keeps separators as their own tokens
+// so whitespace differences are visible.
+function tokenize(str) {
+  return str.match(/\s+|\S+/g) ?? [];
+}
+
+function diffTokens(beforeStr, afterStr) {
+  const a = tokenize(beforeStr);
+  const b = tokenize(afterStr);
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const beforeOps = [];
+  const afterOps = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) {
+      beforeOps.push({ type: "same", text: a[i] });
+      afterOps.push({ type: "same", text: b[j] });
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      beforeOps.push({ type: "del", text: a[i] });
+      i++;
+    } else {
+      afterOps.push({ type: "ins", text: b[j] });
+      j++;
+    }
+  }
+  while (i < m) { beforeOps.push({ type: "del", text: a[i++] }); }
+  while (j < n) { afterOps.push({ type: "ins", text: b[j++] }); }
+
+  // Merge consecutive ops of the same type
+  const merge = (ops) => {
+    const out = [];
+    for (const op of ops) {
+      const last = out[out.length - 1];
+      if (last && last.type === op.type) last.text += op.text;
+      else out.push({ ...op });
+    }
+    return out;
+  };
+  return { before: merge(beforeOps), after: merge(afterOps) };
+}
+
+function renderTokenSegment(seg, side) {
+  if (seg.type === "same") return seg.text;
+  // Make whitespace-only diffs visible with a subtle background
+  const isWhitespace = /^\s+$/.test(seg.text);
+  const baseClass = side === "before"
+    ? "bg-rose-200 text-rose-900"
+    : "bg-emerald-200 text-emerald-900";
+  const cls = isWhitespace ? `${baseClass} rounded` : `${baseClass} rounded px-0.5`;
+  const display = isWhitespace ? seg.text.replace(/ /g, "·").replace(/\t/g, "→").replace(/\n/g, "↵\n") : seg.text;
+  return <mark className={cls}>{display}</mark>;
+}
+
+function HighlightedDiff({ before, after, side }) {
+  const beforeStr = formatDiffValue(before);
+  const afterStr = formatDiffValue(after);
+  const { before: beforeOps, after: afterOps } = diffTokens(beforeStr, afterStr);
+  const ops = side === "before" ? beforeOps : afterOps;
+  return (
+    <pre className="whitespace-pre-wrap break-words text-[11px] text-slate-700">
+      {ops.map((seg, idx) => (
+        <span key={idx}>{renderTokenSegment(seg, side)}</span>
+      ))}
+    </pre>
+  );
+}
+
+function RegexDiffModal({ open, onClose, dish, beforeDish, afterDish }) {
+  if (!open || !beforeDish || !afterDish) return null;
+  const { changed } = diffDishFields(beforeDish, afterDish);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="xl"
+      title={`Regex Changes — ${dish?.dishName ?? dish?.dishId ?? ""}`}
+      subtitle={`${changed.length} field${changed.length === 1 ? "" : "s"} changed (formatting only)`}
+    >
+      <div className="flex flex-col gap-3 p-4">
+        {changed.length === 0 ? (
+          <p className="text-xs text-slate-500">No field-level differences detected.</p>
+        ) : (
+          changed.map(({ field, before, after }) => {
+            const categories = detectRegexCategories(before, after);
+            return (
+              <div key={field} className="rounded-md border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="text-xs font-semibold text-slate-800">{field}</span>
+                  {categories.map((tag) => (
+                    <span key={tag} className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 divide-x divide-slate-100">
+                  <div className="p-3">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-rose-600">Before</p>
+                    <HighlightedDiff before={before} after={after} side="before" />
+                  </div>
+                  <div className="p-3">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">After</p>
+                    <HighlightedDiff before={before} after={after} side="after" />
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
   const isCompare = viewMode === "compare";
 
   const [dishes, setDishes] = useState([]);
   const [statusByDishId, setStatusByDishId] = useState({});
+  const [snapshotPair, setSnapshotPair] = useState({ before: null, after: null });
+  const [regexModalDishId, setRegexModalDishId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -316,16 +582,17 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
       fetchBrandSnapshotAsOf(brand.brandId, afterAt),
     ])
       .then(async ([before, after]) => {
-        const allDishIds = new Set([...before.dishModifiedAt.keys(), ...after.dishModifiedAt.keys()]);
+        const allDishIds = new Set([...before.dishById.keys(), ...after.dishById.keys()]);
 
         const statusMap = {};
         for (const dishId of allDishIds) {
           statusMap[dishId] = computeDishStatus(
-            before.dishModifiedAt.get(dishId) ?? null,
-            after.dishModifiedAt.get(dishId) ?? null,
+            before.dishById.get(dishId) ?? null,
+            after.dishById.get(dishId) ?? null,
           );
         }
         setStatusByDishId(statusMap);
+        setSnapshotPair({ before: before.dishById, after: after.dishById });
 
         if (allDishIds.size === 0) {
           setDishes([]);
@@ -376,7 +643,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
 
   const statusCounts = useMemo(() => {
     if (!isCompare) return null;
-    const counts = { [STATUS_NEW]: 0, [STATUS_UPDATED]: 0, [STATUS_DELETED]: 0, [STATUS_NO_CHANGE]: 0 };
+    const counts = { [STATUS_NEW]: 0, [STATUS_UPDATED]: 0, [STATUS_REGEX]: 0, [STATUS_DELETED]: 0, [STATUS_NO_CHANGE]: 0 };
     for (const d of dishes) {
       const s = statusByDishId[d.autoeatDishId];
       if (s && counts[s] !== undefined) counts[s] += 1;
@@ -407,7 +674,12 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
 
   const distinctTimestamps = [...new Set(timestamps.map((r) => r.createdAt))].sort((a, b) => b.localeCompare(a));
 
+  const regexModalDish = regexModalDishId != null
+    ? dishes.find((d) => d.autoeatDishId === regexModalDishId) ?? null
+    : null;
+
   return (
+    <>
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -512,6 +784,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
               <option value="all">All</option>
               <option value={STATUS_NEW}>New {statusCounts ? `(${statusCounts[STATUS_NEW]})` : ""}</option>
               <option value={STATUS_UPDATED}>Updated {statusCounts ? `(${statusCounts[STATUS_UPDATED]})` : ""}</option>
+              <option value={STATUS_REGEX}>Regex Changes {statusCounts ? `(${statusCounts[STATUS_REGEX]})` : ""}</option>
               <option value={STATUS_DELETED}>Deleted {statusCounts ? `(${statusCounts[STATUS_DELETED]})` : ""}</option>
               <option value={STATUS_NO_CHANGE}>No Change {statusCounts ? `(${statusCounts[STATUS_NO_CHANGE]})` : ""}</option>
             </select>
@@ -551,11 +824,23 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
                   const link = curationLinks[String(dish.autoeatDishId)] ?? null;
                   const status = statusByDishId[dish.autoeatDishId];
                   const rowHighlight = isCompare && status ? STATUS_ROW_CLASS[status] ?? "" : "";
+                  const isRegexRow = status === STATUS_REGEX;
                   return (
-                    <tr key={dish.dishId} className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight}`}>
+                    <tr
+                      key={dish.dishId}
+                      className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight} ${isRegexRow ? "cursor-pointer" : ""}`}
+                      onClick={isRegexRow ? () => setRegexModalDishId(dish.autoeatDishId) : undefined}
+                      title={isRegexRow ? "Click to view regex changes" : undefined}
+                    >
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {link ? (
-                          <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-blue-600 hover:underline"
+                          >
                             {dish.dishId}
                           </a>
                         ) : (
@@ -609,6 +894,14 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
         )}
       </div>
     </section>
+    <RegexDiffModal
+      open={regexModalDishId != null}
+      onClose={() => setRegexModalDishId(null)}
+      dish={regexModalDish}
+      beforeDish={regexModalDishId != null ? snapshotPair.before?.get(regexModalDishId) ?? null : null}
+      afterDish={regexModalDishId != null ? snapshotPair.after?.get(regexModalDishId) ?? null : null}
+    />
+    </>
   );
 }
 
