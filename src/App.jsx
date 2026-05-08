@@ -17,6 +17,7 @@ import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
 const MODE_LARGE_BRAND = "large-brand";
+const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 
 function App() {
   const [session, setSession] = useState(undefined);
@@ -102,7 +103,7 @@ function App() {
 
   if (!session) return <LoginPage />;
 
-  const showBrandList = mode === MODE_LARGE_BRAND;
+  const showBrandList = IS_LOCAL_ENV && mode === MODE_LARGE_BRAND;
 
   return (
     <WeightsProvider userId={session.user.id}>
@@ -130,14 +131,16 @@ function App() {
                 <Upload className="h-3 w-3" />
                 CSV
               </button>
-              <button
-                type="button"
-                onClick={() => handleSwitchMode(MODE_LARGE_BRAND)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_LARGE_BRAND ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-              >
-                <Building2 className="h-3 w-3" />
-                Large Brand
-              </button>
+              {IS_LOCAL_ENV && (
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode(MODE_LARGE_BRAND)}
+                  className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_LARGE_BRAND ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                >
+                  <Building2 className="h-3 w-3" />
+                  Large Brand
+                </button>
+              )}
             </div>
 
             {mode === MODE_CSV ? (
@@ -225,12 +228,13 @@ function App() {
         ) : showBrandList && selectedLargeBrand ? (
           <LargeBrandDishPage
             brand={selectedLargeBrand}
+            viewMode={selectedLargeBrand.viewMode ?? "latest"}
             onBack={() => setSelectedLargeBrand(null)}
           />
         ) : showBrandList ? (
           <BrandListPage
             onBack={() => handleSwitchMode(MODE_CSV)}
-            onSelectBrand={(brand) => setSelectedLargeBrand(brand)}
+            onSelectBrand={(brand, viewMode) => setSelectedLargeBrand({ ...brand, viewMode })}
           />
         ) : loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-32">

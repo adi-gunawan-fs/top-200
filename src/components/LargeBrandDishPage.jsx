@@ -7,6 +7,25 @@ import { fetchDishCurationLinks } from "../lib/dbFetch";
 const API_BASE = "http://localhost:3000";
 const PAGE_SIZE = 50;
 
+const STATUS_NEW = "new";
+const STATUS_UPDATED = "updated";
+const STATUS_DELETED = "deleted";
+const STATUS_NO_CHANGE = "no-change";
+
+const STATUS_LABEL = {
+  [STATUS_NEW]: "New",
+  [STATUS_UPDATED]: "Updated",
+  [STATUS_DELETED]: "Deleted",
+  [STATUS_NO_CHANGE]: "No Change",
+};
+
+const STATUS_CLASS = {
+  [STATUS_NEW]: "bg-emerald-100 text-emerald-700",
+  [STATUS_UPDATED]: "bg-amber-100 text-amber-700",
+  [STATUS_DELETED]: "bg-rose-100 text-rose-700",
+  [STATUS_NO_CHANGE]: "bg-slate-100 text-slate-500",
+};
+
 function buildMenuTitleChain(menuTitleId, menuTitlesById) {
   const chain = [];
   let current = menuTitlesById.get(menuTitleId);
@@ -52,6 +71,55 @@ async function fetchDishDetails(autoeatDishIds) {
   if (!res.ok) throw new Error(`Failed to fetch dish details: ${res.statusText}`);
   const { rows } = await res.json();
   return rows;
+}
+
+async function fetchBrandMessageTimestamps(brandId) {
+  const res = await fetch(`${API_BASE}/api/brand-message-timestamps?brandId=${brandId}`);
+  if (!res.ok) throw new Error(`Failed to fetch timestamps: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
+async function fetchBrandSnapshotAsOf(brandId, asOf) {
+  const res = await fetch(`${API_BASE}/api/brand-message-asof?brandId=${brandId}&asOf=${encodeURIComponent(asOf)}`);
+  if (!res.ok) throw new Error(`Failed to fetch snapshot: ${res.statusText}`);
+  const { rows } = await res.json();
+
+  const dishMap = new Map();
+  const menuTitleChains = new Map();
+  const dishModifiedAt = new Map();
+  for (const row of rows) {
+    const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
+    const menuAutoeatId = message?.menu?.id;
+    const menuTitlesById = new Map((message?.menuTitles ?? []).map((mt) => [mt.id, mt]));
+
+    for (const dish of message?.dishes ?? []) {
+      if (dish.id != null) {
+        dishMap.set(dish.id, menuAutoeatId);
+        dishModifiedAt.set(dish.id, dish.modifiedAt ?? null);
+        if (dish.menuTitleId != null) {
+          menuTitleChains.set(dish.id, buildMenuTitleChain(dish.menuTitleId, menuTitlesById));
+        }
+      }
+    }
+  }
+  return { dishMap, menuTitleChains, dishModifiedAt };
+}
+
+function computeDishStatus(beforeMod, afterMod) {
+  const hasBefore = beforeMod != null;
+  const hasAfter = afterMod != null;
+  if (!hasBefore && hasAfter) return STATUS_NEW;
+  if (hasBefore && !hasAfter) return STATUS_DELETED;
+  if (!hasBefore && !hasAfter) return STATUS_NO_CHANGE;
+  return beforeMod === afterMod ? STATUS_NO_CHANGE : STATUS_UPDATED;
+}
+
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function str(v) {
@@ -143,6 +211,15 @@ function MenuTitleChain({ chain }) {
   );
 }
 
+function StatusPill({ status }) {
+  if (!status) return <span className="text-slate-400">—</span>;
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_CLASS[status] ?? "bg-slate-100 text-slate-500"}`}>
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
 function CurationList({ items }) {
   if (!Array.isArray(items) || items.length === 0) return <span className="text-slate-400">—</span>;
   return (
@@ -157,8 +234,11 @@ function CurationList({ items }) {
   );
 }
 
-function LargeBrandDishPage({ brand, onBack }) {
+function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
+  const isCompare = viewMode === "compare";
+
   const [dishes, setDishes] = useState([]);
+  const [statusByDishId, setStatusByDishId] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -166,8 +246,34 @@ function LargeBrandDishPage({ brand, onBack }) {
   const [curationLinks, setCurationLinks] = useState({});
   const [exportPrompt, setExportPrompt] = useState(false);
   const [exportLimit, setExportLimit] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const [timestamps, setTimestamps] = useState([]);
+  const [beforeAt, setBeforeAt] = useState("");
+  const [afterAt, setAfterAt] = useState("");
 
   useEffect(() => {
+    if (!isCompare) return;
+    setLoading(true);
+    setError("");
+    fetchBrandMessageTimestamps(brand.brandId)
+      .then((rows) => {
+        setTimestamps(rows);
+        const distinct = [...new Set(rows.map((r) => r.createdAt))].sort((a, b) => b.localeCompare(a));
+        if (distinct.length >= 2) {
+          setAfterAt(distinct[0]);
+          setBeforeAt(distinct[1]);
+        } else if (distinct.length === 1) {
+          setAfterAt(distinct[0]);
+          setBeforeAt(distinct[0]);
+        }
+      })
+      .catch((err) => setError(err.message ?? "Failed to load timestamps."))
+      .finally(() => setLoading(false));
+  }, [brand.brandId, isCompare]);
+
+  useEffect(() => {
+    if (isCompare) return;
     setLoading(true);
     setError("");
 
@@ -196,15 +302,86 @@ function LargeBrandDishPage({ brand, onBack }) {
       })
       .catch((err) => setError(err.message ?? "Failed to load dishes."))
       .finally(() => setLoading(false));
-  }, [brand.brandId]);
+  }, [brand.brandId, isCompare]);
 
-  useEffect(() => { setPage(0); }, [search]);
+  useEffect(() => {
+    if (!isCompare || !beforeAt || !afterAt) return;
+    setLoading(true);
+    setError("");
+    setStatusByDishId({});
+
+    Promise.all([
+      fetchBrandSnapshotAsOf(brand.brandId, beforeAt),
+      fetchBrandSnapshotAsOf(brand.brandId, afterAt),
+    ])
+      .then(async ([before, after]) => {
+        const allDishIds = new Set([...before.dishModifiedAt.keys(), ...after.dishModifiedAt.keys()]);
+
+        const statusMap = {};
+        for (const dishId of allDishIds) {
+          statusMap[dishId] = computeDishStatus(
+            before.dishModifiedAt.get(dishId) ?? null,
+            after.dishModifiedAt.get(dishId) ?? null,
+          );
+        }
+        setStatusByDishId(statusMap);
+
+        if (allDishIds.size === 0) {
+          setDishes([]);
+          return;
+        }
+
+        const dishMap = new Map(after.dishMap);
+        const menuTitleChains = new Map(after.menuTitleChains);
+        for (const dishId of allDishIds) {
+          if (!dishMap.has(dishId) && before.dishMap.has(dishId)) {
+            dishMap.set(dishId, before.dishMap.get(dishId));
+          }
+          if (!menuTitleChains.has(dishId) && before.menuTitleChains.has(dishId)) {
+            menuTitleChains.set(dishId, before.menuTitleChains.get(dishId));
+          }
+        }
+
+        const details = await fetchDishDetails([...allDishIds]);
+        const enriched = details.map((d) => ({
+          ...d,
+          menuAutoeatId: dishMap.get(d.autoeatDishId),
+          menuTitleChain: menuTitleChains.get(d.autoeatDishId) ?? [],
+        }));
+        setDishes(enriched);
+
+        const pairs = enriched
+          .filter((d) => d.menuAutoeatId != null)
+          .map((d) => ({ dishId: String(d.autoeatDishId), menuAutoeatId: String(d.menuAutoeatId) }));
+        fetchDishCurationLinks(pairs).then(setCurationLinks).catch(() => {});
+      })
+      .catch((err) => setError(err.message ?? "Failed to load comparison."))
+      .finally(() => setLoading(false));
+  }, [brand.brandId, isCompare, beforeAt, afterAt]);
+
+  useEffect(() => { setPage(0); }, [search, statusFilter]);
 
   const visibleDishes = useMemo(() => {
-    if (!search.trim()) return dishes;
-    const q = search.toLowerCase();
-    return dishes.filter((d) => (d.dishName ?? "").toLowerCase().includes(q));
-  }, [dishes, search]);
+    let list = dishes;
+    if (isCompare && statusFilter !== "all") {
+      list = list.filter((d) => statusByDishId[d.autoeatDishId] === statusFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((d) => (d.dishName ?? "").toLowerCase().includes(q));
+    }
+    return list;
+  }, [dishes, search, isCompare, statusFilter, statusByDishId]);
+
+  const statusCounts = useMemo(() => {
+    if (!isCompare) return null;
+    const counts = { [STATUS_NEW]: 0, [STATUS_UPDATED]: 0, [STATUS_DELETED]: 0, [STATUS_NO_CHANGE]: 0 };
+    for (const d of dishes) {
+      const s = statusByDishId[d.autoeatDishId];
+      if (s && counts[s] !== undefined) counts[s] += 1;
+    }
+    return counts;
+  }, [dishes, isCompare, statusByDishId]);
 
   const totalPages = Math.ceil(visibleDishes.length / PAGE_SIZE);
   const paginated = visibleDishes.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -227,6 +404,8 @@ function LargeBrandDishPage({ brand, onBack }) {
     );
   }
 
+  const distinctTimestamps = [...new Set(timestamps.map((r) => r.createdAt))].sort((a, b) => b.localeCompare(a));
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -234,7 +413,9 @@ function LargeBrandDishPage({ brand, onBack }) {
           <Button onClick={onBack}><ArrowLeft className="h-3.5 w-3.5" />Back</Button>
           <div>
             <h2 className="text-sm font-semibold text-slate-700">{brand.brandName}</h2>
-            <p className="text-[11px] text-slate-400">Latest snapshot · {visibleDishes.length} dishes</p>
+            <p className="text-[11px] text-slate-400">
+              {isCompare ? `Compare · ${visibleDishes.length} dishes` : `Latest snapshot · ${visibleDishes.length} dishes`}
+            </p>
           </div>
         </div>
 
@@ -294,11 +475,55 @@ function LargeBrandDishPage({ brand, onBack }) {
         </div>
       </div>
 
+      {isCompare && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="font-medium">Before</span>
+            <select
+              value={beforeAt}
+              onChange={(e) => setBeforeAt(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+            >
+              {distinctTimestamps.map((ts) => (
+                <option key={ts} value={ts}>{formatTimestamp(ts)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="font-medium">After</span>
+            <select
+              value={afterAt}
+              onChange={(e) => setAfterAt(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+            >
+              {distinctTimestamps.map((ts) => (
+                <option key={ts} value={ts}>{formatTimestamp(ts)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="font-medium">Status</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="all">All</option>
+              <option value={STATUS_NEW}>New {statusCounts ? `(${statusCounts[STATUS_NEW]})` : ""}</option>
+              <option value={STATUS_UPDATED}>Updated {statusCounts ? `(${statusCounts[STATUS_UPDATED]})` : ""}</option>
+              <option value={STATUS_DELETED}>Deleted {statusCounts ? `(${statusCounts[STATUS_DELETED]})` : ""}</option>
+              <option value={STATUS_NO_CHANGE}>No Change {statusCounts ? `(${statusCounts[STATUS_NO_CHANGE]})` : ""}</option>
+            </select>
+          </label>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="max-h-[70vh] overflow-auto">
           <table className="min-w-full border-collapse text-xs">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
+                {isCompare && <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Status</th>}
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish ID</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Name</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Description</th>
@@ -319,13 +544,17 @@ function LargeBrandDishPage({ brand, onBack }) {
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={isCompare ? 16 : 15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
                   const link = curationLinks[String(dish.autoeatDishId)] ?? null;
+                  const status = statusByDishId[dish.autoeatDishId];
                   return (
                     <tr key={dish.dishId} className="border-b border-slate-100 last:border-b-0 text-slate-700 align-top">
+                      {isCompare && (
+                        <td className="px-3 py-2 whitespace-nowrap"><StatusPill status={status} /></td>
+                      )}
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {link ? (
                           <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">

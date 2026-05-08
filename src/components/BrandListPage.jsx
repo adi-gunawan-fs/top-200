@@ -1,9 +1,47 @@
 import { useEffect, useState, useMemo } from "react";
-import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Clock, GitCompare } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 
 const PAGE_SIZE = 20;
+
+function ModePickerModal({ brand, onPick, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-slate-800">{brand.brandName}</h3>
+        <p className="mt-1 text-xs text-slate-500">Choose how you'd like to view this brand's dishes.</p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => onPick("latest")}
+            className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-2.5 text-left hover:border-blue-400 hover:bg-blue-50"
+          >
+            <Clock className="h-4 w-4 text-slate-500" />
+            <div>
+              <div className="text-xs font-medium text-slate-800">Latest</div>
+              <div className="text-[11px] text-slate-500">View the latest snapshot of dishes.</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => onPick("compare")}
+            className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-2.5 text-left hover:border-blue-400 hover:bg-blue-50"
+          >
+            <GitCompare className="h-4 w-4 text-slate-500" />
+            <div>
+              <div className="text-xs font-medium text-slate-800">Compare</div>
+              <div className="text-[11px] text-slate-500">Pick before/after dates to see changes.</div>
+            </div>
+          </button>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button type="button" onClick={onClose} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 async function fetchBrandsList() {
   const response = await fetch("http://localhost:3000/api/brands-list");
@@ -18,6 +56,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
+  const [pickerBrand, setPickerBrand] = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -113,7 +152,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
               paginatedBrands.map((brand) => (
                 <tr
                   key={brand.brandId}
-                  onClick={() => onSelectBrand(brand)}
+                  onClick={() => setPickerBrand(brand)}
                   className="cursor-pointer border-b border-slate-100 last:border-b-0 text-slate-700 hover:bg-slate-50"
                 >
                   <td className="px-3 py-2 font-medium text-slate-900">{brand.autoeatId}</td>
@@ -199,6 +238,18 @@ function BrandListPage({ onBack, onSelectBrand }) {
           </div>
         )}
       </div>
+
+      {pickerBrand && (
+        <ModePickerModal
+          brand={pickerBrand}
+          onClose={() => setPickerBrand(null)}
+          onPick={(mode) => {
+            const target = pickerBrand;
+            setPickerBrand(null);
+            onSelectBrand(target, mode);
+          }}
+        />
+      )}
     </section>
   );
 }

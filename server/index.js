@@ -103,6 +103,65 @@ app.get("/api/brand-latest-message", async (req, res) => {
   }
 });
 
+// GET /api/brand-message-timestamps?brandId=X
+// Returns all MENU_FOR_CURATION autoeatMessages for a brand: { id, createdAt, menuId }.
+app.get("/api/brand-message-timestamps", async (req, res) => {
+  const brandId = parseInt(req.query.brandId, 10);
+  if (!brandId) return res.status(400).json({ error: "brandId required" });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT am.id, am."createdAt", m."autoeatId" AS "menuId"
+       FROM menus m
+       INNER JOIN "autoeatMessages" am ON am."menuId" = m."autoeatId"
+       WHERE m."brandId" = $1
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+         AND am.type = 'MENU_FOR_CURATION'
+         AND am."createdAt" > '2025-01-01 00:00:00+00'
+       ORDER BY am."createdAt" DESC`,
+      [brandId],
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("brand-message-timestamps error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/brand-message-asof?brandId=X&asOf=ISO
+// Returns the latest message per INCLUDED menu at-or-before the asOf timestamp.
+app.get("/api/brand-message-asof", async (req, res) => {
+  const brandId = parseInt(req.query.brandId, 10);
+  const asOf = req.query.asOf;
+  if (!brandId) return res.status(400).json({ error: "brandId required" });
+  if (!asOf) return res.status(400).json({ error: "asOf required" });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (m."autoeatId")
+         am.id,
+         am."createdAt",
+         am."updatedAt",
+         am.message
+       FROM menus m
+       INNER JOIN "autoeatMessages" am ON am."menuId" = m."autoeatId"
+       WHERE m."brandId" = $1
+         AND m."status" = 'INCLUDED'
+         AND m."isPublished" = true
+         AND am.type = 'MENU_FOR_CURATION'
+         AND am."createdAt" > '2025-01-01 00:00:00+00'
+         AND am."createdAt" <= $2
+       ORDER BY m."autoeatId", am."createdAt" DESC`,
+      [brandId, asOf],
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("brand-message-asof error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/brand-dish-details
 // Body: { autoeatDishIds: [123, 456] }
 // Returns full dish data from dishes DB joined with menuTitles, keyed by autoeatId.
