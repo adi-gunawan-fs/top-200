@@ -19,11 +19,11 @@ const STATUS_LABEL = {
   [STATUS_NO_CHANGE]: "No Change",
 };
 
-const STATUS_CLASS = {
-  [STATUS_NEW]: "bg-emerald-100 text-emerald-700",
-  [STATUS_UPDATED]: "bg-amber-100 text-amber-700",
-  [STATUS_DELETED]: "bg-rose-100 text-rose-700",
-  [STATUS_NO_CHANGE]: "bg-slate-100 text-slate-500",
+const STATUS_ROW_CLASS = {
+  [STATUS_NEW]: "bg-emerald-50 hover:bg-emerald-100",
+  [STATUS_UPDATED]: "bg-amber-50 hover:bg-amber-100",
+  [STATUS_DELETED]: "bg-rose-50 hover:bg-rose-100",
+  [STATUS_NO_CHANGE]: "bg-slate-50 hover:bg-slate-100",
 };
 
 function buildMenuTitleChain(menuTitleId, menuTitlesById) {
@@ -208,15 +208,6 @@ function MenuTitleChain({ chain }) {
         </div>
       ))}
     </div>
-  );
-}
-
-function StatusPill({ status }) {
-  if (!status) return <span className="text-slate-400">—</span>;
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_CLASS[status] ?? "bg-slate-100 text-slate-500"}`}>
-      {STATUS_LABEL[status] ?? status}
-    </span>
   );
 }
 
@@ -523,7 +514,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
           <table className="min-w-full border-collapse text-xs">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
-                {isCompare && <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Status</th>}
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish ID</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Name</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Description</th>
@@ -544,17 +534,15 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={isCompare ? 16 : 15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
                   const link = curationLinks[String(dish.autoeatDishId)] ?? null;
                   const status = statusByDishId[dish.autoeatDishId];
+                  const rowHighlight = isCompare && status ? STATUS_ROW_CLASS[status] ?? "" : "";
                   return (
-                    <tr key={dish.dishId} className="border-b border-slate-100 last:border-b-0 text-slate-700 align-top">
-                      {isCompare && (
-                        <td className="px-3 py-2 whitespace-nowrap"><StatusPill status={status} /></td>
-                      )}
+                    <tr key={dish.dishId} className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight}`}>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {link ? (
                           <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
