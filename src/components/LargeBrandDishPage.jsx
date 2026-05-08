@@ -146,10 +146,15 @@ function exportToCsv(dishes, curationLinks, brandName) {
   const headers = [
     "Brand Name", "Dish ID", "Dish Name", "Description",
     "Menu Title",
-    "Ingredients", "Diet Descriptors", "Addon Descriptors", "Allergen Descriptors",
+    "Ingredient Free Text", "Diet Descriptors", "Addon Descriptors", "Allergen Descriptors",
     "Dish Type", "Course Type",
     "Main Ingredients", "Additional Ingredients", "Choice Ingredients",
     "Diets", "Allergens",
+    "Diet Correctness Score", "Diet Correctness Reason",
+    "Addon Correctness Score", "Addon Correctness Reason",
+    "Dish Type Correctness Score", "Dish Type Correctness Reason",
+    "Ingredient Correctness Score", "Ingredient Correctness Reason",
+    "Allergen Correctness Score", "Allergen Correctness Reason",
   ];
 
   const rows = dishes.map((dish) => {
@@ -184,6 +189,11 @@ function exportToCsv(dishes, curationLinks, brandName) {
       escapeCsv(curationListToText(dish.choiceIngredients)),
       escapeCsv(curationListToText(dish.diets)),
       escapeCsv(curationListToText(dish.allergens)),
+      "", "",
+      "", "",
+      "", "",
+      "", "",
+      "", "",
     ].join(",");
   });
 
