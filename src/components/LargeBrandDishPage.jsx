@@ -258,7 +258,12 @@ function buildCompareExportRows(dishes, brandName, snapshotPair) {
     return JSON.stringify(val);
   };
 
-  const statusFromExactMatch = (beforeVal, afterVal) => (beforeVal === afterVal ? "NO_CHANGE" : "");
+  const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+  const statusFromExactMatch = (beforeVal, afterVal) => {
+    if (beforeVal === afterVal) return "NO_CHANGE";
+    if (hasValue(beforeVal) && !hasValue(afterVal)) return "NO_CHANGE";
+    return "";
+  };
 
   return dishes.map((dish) => {
     const beforeDish = snapshotPair?.before?.get(dish.autoeatDishId) ?? null;
@@ -299,6 +304,29 @@ function buildCompareExportRows(dishes, brandName, snapshotPair) {
       after_diets: afterDiets,
       diets_status: statusFromExactMatch(beforeDiets, afterDiets),
     };
+  });
+}
+
+function applyExperimentFieldSelection(rows, selectedFields) {
+  const fieldMap = [
+    { key: "name", before: "before_name", after: "after_name", status: "name_status" },
+    { key: "description", before: "before_description", after: "after_description", status: "description_status" },
+    { key: "ingredient", before: "before_ingredient", after: "after_ingredient", status: "ingredient_status" },
+    { key: "addons", before: "before_addons", after: "after_addons", status: "addons_status" },
+    { key: "allergens", before: "before_allergens", after: "after_allergens", status: "allergens_status" },
+    { key: "diets", before: "before_diets", after: "after_diets", status: "diets_status" },
+  ];
+
+  return rows.map((row) => {
+    const out = { ...row };
+    for (const f of fieldMap) {
+      if (!selectedFields?.[f.key]) {
+        out[f.before] = "";
+        out[f.after] = "";
+        out[f.status] = "";
+      }
+    }
+    return out;
   });
 }
 
@@ -621,6 +649,17 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
   const [exportLimit, setExportLimit] = useState("");
   const [sendingExperiment, setSendingExperiment] = useState(false);
   const [experimentToast, setExperimentToast] = useState("");
+  const [sendPrompt, setSendPrompt] = useState(false);
+  const [sendLimit, setSendLimit] = useState("");
+  const [sendFields, setSendFields] = useState({
+    name: true,
+    description: true,
+    ingredient: true,
+    addons: true,
+    allergens: true,
+    diets: true,
+  });
+  const [selectedExperimentIds, setSelectedExperimentIds] = useState(() => new Set());
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [timestamps, setTimestamps] = useState([]);
@@ -761,16 +800,32 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
 
   const totalPages = Math.ceil(visibleDishes.length / PAGE_SIZE);
   const paginated = visibleDishes.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const selectedFilteredCount = visibleDishes.filter((d) => selectedExperimentIds.has(String(d.autoeatDishId))).length;
 
   async function handleSendToExperiment() {
     if (!isCompare || !sessionUserId || visibleDishes.length === 0) return;
+    const selectedRows = visibleDishes.filter((d) => selectedExperimentIds.has(String(d.autoeatDishId)));
+    if (selectedRows.length === 0) {
+      setError("Select at least one row before sending to Experiment.");
+      return;
+    }
+    const limit = sendLimit ? Math.min(parseInt(sendLimit, 10) || 0, selectedRows.length) : selectedRows.length;
+    const selectedCount = Object.values(sendFields).filter(Boolean).length;
+    if (selectedCount === 0) {
+      setError("Select at least one field before sending to Experiment.");
+      return;
+    }
+    const slice = selectedRows.slice(0, limit);
     setSendingExperiment(true);
     setError("");
     setExperimentToast("");
     try {
-      const rows = buildCompareExportRows(visibleDishes, brand.brandName, snapshotPair);
-      const result = await saveExperimentRows(sessionUserId, rows);
-      setExperimentToast(`Sent ${result?.inserted ?? rows.length} rows to Experiment.`);
+      const rows = buildCompareExportRows(slice, brand.brandName, snapshotPair);
+      const selectedFieldRows = applyExperimentFieldSelection(rows, sendFields);
+      const result = await saveExperimentRows(sessionUserId, selectedFieldRows);
+      setExperimentToast(`Sent ${result?.inserted ?? selectedFieldRows.length} rows to Experiment.`);
+      setSendPrompt(false);
+      setSendLimit("");
     } catch (err) {
       setError(err?.message ?? "Failed to send rows to Experiment.");
     } finally {
@@ -869,15 +924,86 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
           ) : (
             <>
               {isCompare && (
-                <Button
-                  variant="tonal"
-                  tone="warning"
-                  onClick={handleSendToExperiment}
-                  disabled={visibleDishes.length === 0 || sendingExperiment}
-                >
-                  <FlaskConical className="h-3.5 w-3.5" />
-                  {sendingExperiment ? "Sending…" : "Send to Experiment"}
-                </Button>
+                sendPrompt ? (
+                  <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder={`Limit (max ${selectedFilteredCount})`}
+                      value={sendLimit}
+                      onChange={(e) => setSendLimit(e.target.value)}
+                      className="w-36 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                      {[
+                        ["name", "Name"],
+                        ["description", "Desc"],
+                        ["ingredient", "Ing"],
+                        ["addons", "Add"],
+                        ["allergens", "Allg"],
+                        ["diets", "Diet"],
+                      ].map(([key, label]) => (
+                        <label key={key} className="inline-flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            checked={!!sendFields[key]}
+                            onChange={(e) => setSendFields((prev) => ({ ...prev, [key]: e.target.checked }))}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <span className="text-[11px] text-slate-500">{selectedFilteredCount} selected</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(selectedExperimentIds);
+                        visibleDishes.forEach((d) => next.add(String(d.autoeatDishId)));
+                        setSelectedExperimentIds(next);
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Select all filtered
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(selectedExperimentIds);
+                        visibleDishes.forEach((d) => next.delete(String(d.autoeatDishId)));
+                        setSelectedExperimentIds(next);
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear filtered
+                    </button>
+                    <Button
+                      variant="tonal"
+                      tone="warning"
+                      onClick={handleSendToExperiment}
+                      disabled={selectedFilteredCount === 0 || sendingExperiment}
+                    >
+                      <FlaskConical className="h-3.5 w-3.5" />
+                      {sendingExperiment ? "Sending…" : "Send"}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { setSendPrompt(false); setSendLimit(""); }}
+                      className="text-xs text-slate-400 hover:text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="tonal"
+                    tone="warning"
+                    onClick={() => setSendPrompt(true)}
+                    disabled={visibleDishes.length === 0 || sendingExperiment}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5" />
+                    Send to Experiment
+                  </Button>
+                )
               )}
               <Button
                 variant="tonal"
@@ -940,6 +1066,9 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
           <table className="min-w-full border-collapse text-xs">
             <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
+                {isCompare && sendPrompt ? (
+                  <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Pick</th>
+                ) : null}
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish ID</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Dish Name</th>
                 <th className="sticky top-0 z-10 bg-slate-50 px-3 py-2.5 whitespace-nowrap">Description</th>
@@ -960,7 +1089,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
             <tbody>
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
+                  <td colSpan={isCompare && sendPrompt ? 16 : 15} className="px-4 py-6 text-center text-slate-400">No dishes found.</td>
                 </tr>
               ) : (
                 paginated.map((dish) => {
@@ -978,6 +1107,21 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
                       key={dish.dishId}
                       className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight}`}
                     >
+                      {isCompare && sendPrompt ? (
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            checked={selectedExperimentIds.has(String(dish.autoeatDishId))}
+                            onChange={(e) => {
+                              const next = new Set(selectedExperimentIds);
+                              const key = String(dish.autoeatDishId);
+                              if (e.target.checked) next.add(key);
+                              else next.delete(key);
+                              setSelectedExperimentIds(next);
+                            }}
+                          />
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {link ? (
                           <a

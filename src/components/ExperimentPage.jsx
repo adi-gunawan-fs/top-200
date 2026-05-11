@@ -3,15 +3,99 @@ import { Eye, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 import { Modal } from "./ui/Modal";
-import { deleteAllExperimentRows, deleteExperimentRow, fetchExperimentRows } from "../lib/experiments";
+import { deleteAllExperimentRows, deleteExperimentRow, fetchExperimentRows, updateExperimentCellLabel } from "../lib/experiments";
+
+const LABEL_OPTIONS = ["", "REGEX_CHANGES", "MINOR_CHANGES", "MAJOR_CHANGES"];
+
+const COMPARE_EXPORT_HEADERS = [
+  "Brand Name", "Dish ID", "Dish Name",
+  "Before Name", "After Name",
+  "Name Status",
+  "Before Description", "After Description",
+  "Description Status",
+  "Before Ingredient", "After Ingredient",
+  "Ingredient Status",
+  "Before Addons", "After Addons",
+  "Addons Status",
+  "Before Allergens", "After Allergens",
+  "Allergens Status",
+  "Before Diets", "After Diets",
+  "Diets Status",
+];
+
+function escapeCsv(value) {
+  const s = value == null ? "" : String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function downloadExperimentCsv(rows) {
+  const csvRows = rows.map((row) => ([
+    row.brand_name ?? "",
+    row.dish_id ?? "",
+    row.dish_name ?? "",
+    row.before_name ?? "",
+    row.after_name ?? "",
+    row.name_status ?? "",
+    row.before_description ?? "",
+    row.after_description ?? "",
+    row.description_status ?? "",
+    row.before_ingredient ?? "",
+    row.after_ingredient ?? "",
+    row.ingredient_status ?? "",
+    row.before_addons ?? "",
+    row.after_addons ?? "",
+    row.addons_status ?? "",
+    row.before_allergens ?? "",
+    row.after_allergens ?? "",
+    row.allergens_status ?? "",
+    row.before_diets ?? "",
+    row.after_diets ?? "",
+    row.diets_status ?? "",
+  ].map(escapeCsv).join(",")));
+
+  const csv = [COMPARE_EXPORT_HEADERS.map(escapeCsv).join(","), ...csvRows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `experiment_compare_export_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function str(value) {
   if (value == null || value === "") return "—";
   return String(value);
 }
 
+function formatValueForDiff(value) {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+
+  const raw = String(value);
+  const trimmed = raw.trim();
+
+  // If we stored JSON as text (object/array), pretty-print it for readable line diffs.
+  if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      // Fall through to plain text normalization.
+    }
+  }
+
+  // Render escaped newlines/tabs so long strings become line-by-line comparable.
+  return raw.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
 function toLines(value) {
-  return String(value ?? "").split(/\r?\n/);
+  return formatValueForDiff(value).split(/\r?\n/);
 }
 
 function diffLineOps(beforeValue, afterValue) {
@@ -97,6 +181,7 @@ function ExperimentPage({ sessionUserId }) {
   const [clearingAll, setClearingAll] = useState(false);
   const [success, setSuccess] = useState("");
   const [statusDetail, setStatusDetail] = useState(null);
+  const [busyModalLabel, setBusyModalLabel] = useState(false);
 
   async function loadRows() {
     if (!sessionUserId) return;
@@ -157,8 +242,11 @@ function ExperimentPage({ sessionUserId }) {
     }
   }
 
-  function openStatusDetail(row, fieldLabel, beforeKey, afterKey) {
+  function openStatusDetail(row, fieldLabel, beforeKey, afterKey, labelKey) {
     setStatusDetail({
+      rowId: row.id,
+      labelKey,
+      labelValue: row?.[labelKey] ?? "",
       fieldLabel,
       brandName: row.brand_name ?? "",
       dishName: row.dish_name ?? "",
@@ -168,21 +256,43 @@ function ExperimentPage({ sessionUserId }) {
     });
   }
 
-  function renderStatusCell(row, statusKey, fieldLabel, beforeKey, afterKey) {
+  function renderStatusCell(row, statusKey, fieldLabel, beforeKey, afterKey, labelKey) {
     const raw = row?.[statusKey];
     const status = raw === "NULL" ? "" : raw;
-    if (status) return str(status);
     return (
-      <button
-        type="button"
-        onClick={() => openStatusDetail(row, fieldLabel, beforeKey, afterKey)}
-        className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
-        title={`View ${fieldLabel} before/after`}
-      >
-        <Eye className="h-3 w-3" />
-        View
-      </button>
+      <div className="flex items-center gap-2">
+        {status ? (
+          <span>{str(status)}</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => openStatusDetail(row, fieldLabel, beforeKey, afterKey, labelKey)}
+            className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
+            title={`View ${fieldLabel} before/after`}
+          >
+            <Eye className="h-3 w-3" />
+            View
+          </button>
+        )}
+      </div>
     );
+  }
+
+  async function handleModalLabelChange(nextLabel) {
+    if (!statusDetail?.rowId || !statusDetail?.labelKey) return;
+    setBusyModalLabel(true);
+    setError("");
+    try {
+      await updateExperimentCellLabel(sessionUserId, statusDetail.rowId, statusDetail.labelKey, nextLabel);
+      setRows((prev) =>
+        prev.map((row) => (row.id === statusDetail.rowId ? { ...row, [statusDetail.labelKey]: nextLabel } : row))
+      );
+      setStatusDetail((prev) => (prev ? { ...prev, labelValue: nextLabel } : prev));
+    } catch (err) {
+      setError(err?.message ?? "Failed to update label.");
+    } finally {
+      setBusyModalLabel(false);
+    }
   }
 
   if (loading) {
@@ -216,6 +326,14 @@ function ExperimentPage({ sessionUserId }) {
           <Button variant="tonal" tone="neutral" onClick={loadRows}>
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
+          </Button>
+          <Button
+            variant="tonal"
+            tone="info"
+            onClick={() => downloadExperimentCsv(filteredRows)}
+            disabled={filteredRows.length === 0}
+          >
+            Export CSV
           </Button>
           <Button variant="tonal" tone="danger" onClick={handleClearAll} disabled={rows.length === 0 || clearingAll}>
             <Trash2 className="h-3.5 w-3.5" />
@@ -255,12 +373,12 @@ function ExperimentPage({ sessionUserId }) {
                     <td className="px-3 py-2 whitespace-nowrap">{str(row.brand_name)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{str(row.dish_id)}</td>
                     <td className="px-3 py-2">{str(row.dish_name)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "name_status", "Name", "before_name", "after_name")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "description_status", "Description", "before_description", "after_description")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "ingredient_status", "Ingredient", "before_ingredient", "after_ingredient")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "addons_status", "Addons", "before_addons", "after_addons")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "allergens_status", "Allergens", "before_allergens", "after_allergens")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "diets_status", "Diets", "before_diets", "after_diets")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "name_status", "Name", "before_name", "after_name", "name_label")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "description_status", "Description", "before_description", "after_description", "description_label")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "ingredient_status", "Ingredient", "before_ingredient", "after_ingredient", "ingredient_label")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "addons_status", "Addons", "before_addons", "after_addons", "addons_label")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "allergens_status", "Allergens", "before_allergens", "after_allergens", "allergens_label")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{renderStatusCell(row, "diets_status", "Diets", "before_diets", "after_diets", "diets_label")}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <Button
                         variant="ghost"
@@ -287,6 +405,21 @@ function ExperimentPage({ sessionUserId }) {
       >
         {statusDetail ? (
           <div className="p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Label</span>
+              <select
+                value={statusDetail.labelValue ?? ""}
+                onChange={(e) => handleModalLabelChange(e.target.value)}
+                disabled={busyModalLabel}
+                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-blue-500 focus:outline-none disabled:opacity-60"
+              >
+                {LABEL_OPTIONS.map((option) => (
+                  <option key={`modal-${option || "EMPTY"}`} value={option}>
+                    {option || "—"}
+                  </option>
+                ))}
+              </select>
+            </div>
             {(() => {
               const { beforeOps, afterOps } = diffLineOps(statusDetail.beforeValue, statusDetail.afterValue);
               return (

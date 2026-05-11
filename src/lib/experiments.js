@@ -27,6 +27,12 @@ export async function saveExperimentRows(userId, rows) {
     before_diets: row.before_diets ?? "",
     after_diets: row.after_diets ?? "",
     diets_status: row.diets_status ?? "",
+    name_label: row.name_label ?? "",
+    description_label: row.description_label ?? "",
+    ingredient_label: row.ingredient_label ?? "",
+    addons_label: row.addons_label ?? "",
+    allergens_label: row.allergens_label ?? "",
+    diets_label: row.diets_label ?? "",
   }));
 
   if (payload.length === 0) return { inserted: 0 };
@@ -43,13 +49,43 @@ export async function saveExperimentRows(userId, rows) {
 export async function fetchExperimentRows(userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select("id, created_at, brand_name, dish_id, dish_name, before_name, after_name, name_status, before_description, after_description, description_status, before_ingredient, after_ingredient, ingredient_status, before_addons, after_addons, addons_status, before_allergens, after_allergens, allergens_status, before_diets, after_diets, diets_status")
+    .select("id, created_at, brand_name, dish_id, dish_name, before_name, after_name, name_status, before_description, after_description, description_status, before_ingredient, after_ingredient, ingredient_status, before_addons, after_addons, addons_status, before_allergens, after_allergens, allergens_status, before_diets, after_diets, diets_status, name_label, description_label, ingredient_label, addons_label, allergens_label, diets_label")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(5000);
 
   if (error) throw error;
   return data ?? [];
+}
+
+export async function updateExperimentRowLabel(userId, rowId, label) {
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ label: label ?? "" })
+    .eq("user_id", userId)
+    .eq("id", rowId);
+
+  if (error) throw error;
+}
+
+export async function updateExperimentCellLabel(userId, rowId, labelColumn, labelValue) {
+  const allowed = new Set([
+    "name_label",
+    "description_label",
+    "ingredient_label",
+    "addons_label",
+    "allergens_label",
+    "diets_label",
+  ]);
+  if (!allowed.has(labelColumn)) throw new Error("Invalid label column");
+
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ [labelColumn]: labelValue ?? "" })
+    .eq("user_id", userId)
+    .eq("id", rowId);
+
+  if (error) throw error;
 }
 
 export async function deleteExperimentRow(userId, rowId) {
