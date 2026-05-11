@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, KeyRound, LogOut, Settings, Upload, Building2 } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Settings, Upload, Building2, FlaskConical } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import SummaryTable from "./components/SummaryTable";
 import BrandComparePage from "./components/BrandComparePage";
 import BrandListPage from "./components/BrandListPage";
 import LargeBrandDishPage from "./components/LargeBrandDishPage";
+import ExperimentPage from "./components/ExperimentPage";
 import UploadSelector from "./components/UploadSelector";
 import { EmptyState } from "./components/ui/EmptyState";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
@@ -17,6 +18,7 @@ import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_CSV = "csv";
 const MODE_LARGE_BRAND = "large-brand";
+const MODE_EXPERIMENT = "experiment";
 const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 
 function App() {
@@ -141,6 +143,14 @@ function App() {
                   Large Brand
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => handleSwitchMode(MODE_EXPERIMENT)}
+                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors ${mode === MODE_EXPERIMENT ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              >
+                <FlaskConical className="h-3 w-3" />
+                Experiment
+              </button>
             </div>
 
             {mode === MODE_CSV ? (
@@ -230,12 +240,15 @@ function App() {
             brand={selectedLargeBrand}
             viewMode={selectedLargeBrand.viewMode ?? "latest"}
             onBack={() => setSelectedLargeBrand(null)}
+            sessionUserId={session.user.id}
           />
         ) : showBrandList ? (
           <BrandListPage
             onBack={() => handleSwitchMode(MODE_CSV)}
             onSelectBrand={(brand, viewMode) => setSelectedLargeBrand({ ...brand, viewMode })}
           />
+        ) : mode === MODE_EXPERIMENT ? (
+          <ExperimentPage sessionUserId={session.user.id} />
         ) : loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-32">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-blue-500" />

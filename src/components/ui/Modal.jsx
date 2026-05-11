@@ -8,6 +8,7 @@ const SIZE_CLASSES = {
   md: "max-w-2xl",
   lg: "max-w-3xl",
   xl: "max-w-5xl",
+  xxl: "max-w-[80vw]",
 };
 
 export function Modal({

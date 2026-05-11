@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
-import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Download, FlaskConical } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 import { Modal } from "./ui/Modal";
 import { fetchDishCurationLinks } from "../lib/dbFetch";
+import { saveExperimentRows } from "../lib/experiments";
 
 const API_BASE = "http://localhost:3000";
 const PAGE_SIZE = 50;
@@ -249,6 +250,58 @@ function escapeCsv(value) {
   return s;
 }
 
+function buildCompareExportRows(dishes, brandName, snapshotPair) {
+  const jsonField = (obj, key) => {
+    const val = obj?.[key];
+    if (val == null) return "";
+    if (typeof val === "string") return val;
+    return JSON.stringify(val);
+  };
+
+  const statusFromExactMatch = (beforeVal, afterVal) => (beforeVal === afterVal ? "NO_CHANGE" : "");
+
+  return dishes.map((dish) => {
+    const beforeDish = snapshotPair?.before?.get(dish.autoeatDishId) ?? null;
+    const afterDish = snapshotPair?.after?.get(dish.autoeatDishId) ?? null;
+    const beforeName = jsonField(beforeDish, "name");
+    const afterName = jsonField(afterDish, "name");
+    const beforeDescription = jsonField(beforeDish, "description");
+    const afterDescription = jsonField(afterDish, "description");
+    const beforeIngredient = jsonField(beforeDish, "ingredients");
+    const afterIngredient = jsonField(afterDish, "ingredients");
+    const beforeAddons = jsonField(beforeDish, "addons");
+    const afterAddons = jsonField(afterDish, "addons");
+    const beforeAllergens = jsonField(beforeDish, "allergens");
+    const afterAllergens = jsonField(afterDish, "allergens");
+    const beforeDiets = jsonField(beforeDish, "diets");
+    const afterDiets = jsonField(afterDish, "diets");
+
+    return {
+      brand_name: brandName ?? "",
+      dish_id: String(dish.dishId ?? ""),
+      dish_name: dish.dishName ?? "",
+      before_name: beforeName,
+      after_name: afterName,
+      name_status: statusFromExactMatch(beforeName, afterName),
+      before_description: beforeDescription,
+      after_description: afterDescription,
+      description_status: statusFromExactMatch(beforeDescription, afterDescription),
+      before_ingredient: beforeIngredient,
+      after_ingredient: afterIngredient,
+      ingredient_status: statusFromExactMatch(beforeIngredient, afterIngredient),
+      before_addons: beforeAddons,
+      after_addons: afterAddons,
+      addons_status: statusFromExactMatch(beforeAddons, afterAddons),
+      before_allergens: beforeAllergens,
+      after_allergens: afterAllergens,
+      allergens_status: statusFromExactMatch(beforeAllergens, afterAllergens),
+      before_diets: beforeDiets,
+      after_diets: afterDiets,
+      diets_status: statusFromExactMatch(beforeDiets, afterDiets),
+    };
+  });
+}
+
 function exportCompareCsv(dishes, curationLinks, brandName, snapshotPair) {
   const headers = [
     "Brand Name", "Dish ID", "Dish Name",
@@ -265,56 +318,30 @@ function exportCompareCsv(dishes, curationLinks, brandName, snapshotPair) {
     "Before Diets", "After Diets",
     "Diets Status",
   ];
-
-  const jsonField = (obj, key) => {
-    const val = obj?.[key];
-    if (val == null) return "";
-    if (typeof val === "string") return val;
-    return JSON.stringify(val);
-  };
-
-  const statusFromExactMatch = (beforeVal, afterVal) => (beforeVal === afterVal ? "NO_CHANGE" : "NULL");
-
-  const rows = dishes.map((dish) => {
-    const beforeDish = snapshotPair?.before?.get(dish.autoeatDishId) ?? null;
-    const afterDish = snapshotPair?.after?.get(dish.autoeatDishId) ?? null;
-    const beforeName = jsonField(beforeDish, "name");
-    const afterName = jsonField(afterDish, "name");
-    const beforeDescription = jsonField(beforeDish, "description");
-    const afterDescription = jsonField(afterDish, "description");
-    const beforeIngredient = jsonField(beforeDish, "ingredients");
-    const afterIngredient = jsonField(afterDish, "ingredients");
-    const beforeAddons = jsonField(beforeDish, "addons");
-    const afterAddons = jsonField(afterDish, "addons");
-    const beforeAllergens = jsonField(beforeDish, "allergens");
-    const afterAllergens = jsonField(afterDish, "allergens");
-    const beforeDiets = jsonField(beforeDish, "diets");
-    const afterDiets = jsonField(afterDish, "diets");
-
-    return [
-      escapeCsv(brandName),
-      escapeCsv(dish.dishId),
-      escapeCsv(dish.dishName ?? ""),
-      escapeCsv(beforeName),
-      escapeCsv(afterName),
-      escapeCsv(statusFromExactMatch(beforeName, afterName)),
-      escapeCsv(beforeDescription),
-      escapeCsv(afterDescription),
-      escapeCsv(statusFromExactMatch(beforeDescription, afterDescription)),
-      escapeCsv(beforeIngredient),
-      escapeCsv(afterIngredient),
-      escapeCsv(statusFromExactMatch(beforeIngredient, afterIngredient)),
-      escapeCsv(beforeAddons),
-      escapeCsv(afterAddons),
-      escapeCsv(statusFromExactMatch(beforeAddons, afterAddons)),
-      escapeCsv(beforeAllergens),
-      escapeCsv(afterAllergens),
-      escapeCsv(statusFromExactMatch(beforeAllergens, afterAllergens)),
-      escapeCsv(beforeDiets),
-      escapeCsv(afterDiets),
-      escapeCsv(statusFromExactMatch(beforeDiets, afterDiets)),
-    ].join(",");
-  });
+  const exportRows = buildCompareExportRows(dishes, brandName, snapshotPair);
+  const rows = exportRows.map((row) => [
+    escapeCsv(row.brand_name),
+    escapeCsv(row.dish_id),
+    escapeCsv(row.dish_name),
+    escapeCsv(row.before_name),
+    escapeCsv(row.after_name),
+    escapeCsv(row.name_status),
+    escapeCsv(row.before_description),
+    escapeCsv(row.after_description),
+    escapeCsv(row.description_status),
+    escapeCsv(row.before_ingredient),
+    escapeCsv(row.after_ingredient),
+    escapeCsv(row.ingredient_status),
+    escapeCsv(row.before_addons),
+    escapeCsv(row.after_addons),
+    escapeCsv(row.addons_status),
+    escapeCsv(row.before_allergens),
+    escapeCsv(row.after_allergens),
+    escapeCsv(row.allergens_status),
+    escapeCsv(row.before_diets),
+    escapeCsv(row.after_diets),
+    escapeCsv(row.diets_status),
+  ].join(","));
 
   const csv = [headers.map(escapeCsv).join(","), ...rows].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -579,7 +606,7 @@ function RegexDiffModal({ open, onClose, dish, beforeDish, afterDish }) {
   );
 }
 
-function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
+function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId }) {
   const isCompare = viewMode === "compare";
 
   const [dishes, setDishes] = useState([]);
@@ -592,6 +619,8 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
   const [curationLinks, setCurationLinks] = useState({});
   const [exportPrompt, setExportPrompt] = useState(false);
   const [exportLimit, setExportLimit] = useState("");
+  const [sendingExperiment, setSendingExperiment] = useState(false);
+  const [experimentToast, setExperimentToast] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [timestamps, setTimestamps] = useState([]);
@@ -733,6 +762,28 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
   const totalPages = Math.ceil(visibleDishes.length / PAGE_SIZE);
   const paginated = visibleDishes.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
+  async function handleSendToExperiment() {
+    if (!isCompare || !sessionUserId || visibleDishes.length === 0) return;
+    setSendingExperiment(true);
+    setError("");
+    setExperimentToast("");
+    try {
+      const rows = buildCompareExportRows(visibleDishes, brand.brandName, snapshotPair);
+      const result = await saveExperimentRows(sessionUserId, rows);
+      setExperimentToast(`Sent ${result?.inserted ?? rows.length} rows to Experiment.`);
+    } catch (err) {
+      setError(err?.message ?? "Failed to send rows to Experiment.");
+    } finally {
+      setSendingExperiment(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!experimentToast) return;
+    const timer = setTimeout(() => setExperimentToast(""), 2600);
+    return () => clearTimeout(timer);
+  }, [experimentToast]);
+
   if (loading) {
     return (
       <section className="flex flex-col items-center justify-center gap-3 py-32">
@@ -816,19 +867,31 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
               </button>
             </div>
           ) : (
-            <Button
-              variant="tonal"
-              tone="info"
-              onClick={() => setExportPrompt(true)}
-              disabled={visibleDishes.length === 0}
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
-            </Button>
+            <>
+              {isCompare && (
+                <Button
+                  variant="tonal"
+                  tone="warning"
+                  onClick={handleSendToExperiment}
+                  disabled={visibleDishes.length === 0 || sendingExperiment}
+                >
+                  <FlaskConical className="h-3.5 w-3.5" />
+                  {sendingExperiment ? "Sending…" : "Send to Experiment"}
+                </Button>
+              )}
+              <Button
+                variant="tonal"
+                tone="info"
+                onClick={() => setExportPrompt(true)}
+                disabled={visibleDishes.length === 0}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </Button>
+            </>
           )}
         </div>
       </div>
-
       {isCompare && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
           <label className="flex items-center gap-2 text-xs text-slate-600">
@@ -977,6 +1040,11 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
         )}
       </div>
     </section>
+    {experimentToast ? (
+      <div className="fixed right-4 top-16 z-[350] rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 shadow-md">
+        {experimentToast}
+      </div>
+    ) : null}
     </>
   );
 }
