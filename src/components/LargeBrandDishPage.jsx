@@ -246,6 +246,57 @@ function escapeCsv(value) {
   return s;
 }
 
+function exportCompareCsv(dishes, curationLinks, brandName, snapshotPair) {
+  const headers = [
+    "Brand Name", "Dish ID", "Dish Name",
+    "Before Name", "After Name",
+    "Before Description", "After Description",
+    "Before Addons", "After Addons",
+    "Before Allergens", "After Allergens",
+    "Before Diets", "After Diets",
+    "Label", "Reason",
+  ];
+
+  const jsonField = (obj, key) => {
+    const val = obj?.[key];
+    if (val == null) return "";
+    if (typeof val === "string") return val;
+    return JSON.stringify(val);
+  };
+
+  const rows = dishes.map((dish) => {
+    const beforeDish = snapshotPair?.before?.get(dish.autoeatDishId) ?? null;
+    const afterDish = snapshotPair?.after?.get(dish.autoeatDishId) ?? null;
+
+    return [
+      escapeCsv(brandName),
+      escapeCsv(dish.dishId),
+      escapeCsv(dish.dishName ?? ""),
+      escapeCsv(jsonField(beforeDish, "name")),
+      escapeCsv(jsonField(afterDish, "name")),
+      escapeCsv(jsonField(beforeDish, "description")),
+      escapeCsv(jsonField(afterDish, "description")),
+      escapeCsv(jsonField(beforeDish, "addons")),
+      escapeCsv(jsonField(afterDish, "addons")),
+      escapeCsv(jsonField(beforeDish, "allergens")),
+      escapeCsv(jsonField(afterDish, "allergens")),
+      escapeCsv(jsonField(beforeDish, "diets")),
+      escapeCsv(jsonField(afterDish, "diets")),
+      "",
+      "",
+    ].join(",");
+  });
+
+  const csv = [headers.map(escapeCsv).join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${brandName.replace(/[^\w-]+/g, "_")}_compare.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function exportToCsv(dishes, curationLinks, brandName) {
   const headers = [
     "Brand Name", "Dish ID", "Dish Name", "Description",
@@ -718,7 +769,13 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
                 tone="info"
                 onClick={() => {
                   const limit = exportLimit ? Math.min(parseInt(exportLimit, 10), visibleDishes.length) : visibleDishes.length;
-                  exportToCsv(visibleDishes.slice(0, limit), curationLinks, brand.brandName);
+                  const slice = visibleDishes.slice(0, limit);
+                  if (isCompare) {
+                    const withStatus = slice.map((d) => ({ ...d, _status: statusByDishId[d.autoeatDishId] ?? "" }));
+                    exportCompareCsv(withStatus, curationLinks, brand.brandName, snapshotPair);
+                  } else {
+                    exportToCsv(slice, curationLinks, brand.brandName);
+                  }
                   setExportPrompt(false);
                   setExportLimit("");
                 }}
