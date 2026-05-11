@@ -10,14 +10,12 @@ const PAGE_SIZE = 50;
 
 const STATUS_NEW = "new";
 const STATUS_UPDATED = "updated";
-const STATUS_REGEX = "regex";
 const STATUS_DELETED = "deleted";
 const STATUS_NO_CHANGE = "no-change";
 
 const STATUS_LABEL = {
   [STATUS_NEW]: "New",
   [STATUS_UPDATED]: "Updated",
-  [STATUS_REGEX]: "Regex Changes",
   [STATUS_DELETED]: "Deleted",
   [STATUS_NO_CHANGE]: "No Change",
 };
@@ -25,7 +23,6 @@ const STATUS_LABEL = {
 const STATUS_ROW_CLASS = {
   [STATUS_NEW]: "bg-emerald-50 hover:bg-emerald-100",
   [STATUS_UPDATED]: "bg-amber-50 hover:bg-amber-100",
-  [STATUS_REGEX]: "bg-blue-50 hover:bg-blue-100",
   [STATUS_DELETED]: "bg-rose-50 hover:bg-rose-100",
   [STATUS_NO_CHANGE]: "bg-slate-50 hover:bg-slate-100",
 };
@@ -214,9 +211,15 @@ function computeDishStatus(beforeDish, afterDish) {
   const afterMod = afterDish.modifiedAt ?? null;
   if (beforeMod === afterMod) return STATUS_NO_CHANGE;
 
-  const { changed, allRegex } = diffDishFields(beforeDish, afterDish);
+  const { changed } = diffDishFields(beforeDish, afterDish);
   if (changed.length === 0) return STATUS_NO_CHANGE;
-  return allRegex ? STATUS_REGEX : STATUS_UPDATED;
+  return STATUS_UPDATED;
+}
+
+function hasExactFieldChange(beforeDish, afterDish, field) {
+  const beforeVal = beforeDish?.[field];
+  const afterVal = afterDish?.[field];
+  return JSON.stringify(beforeVal) !== JSON.stringify(afterVal);
 }
 
 function formatTimestamp(iso) {
@@ -250,11 +253,17 @@ function exportCompareCsv(dishes, curationLinks, brandName, snapshotPair) {
   const headers = [
     "Brand Name", "Dish ID", "Dish Name",
     "Before Name", "After Name",
+    "Name Status",
     "Before Description", "After Description",
+    "Description Status",
+    "Before Ingredient", "After Ingredient",
+    "Ingredient Status",
     "Before Addons", "After Addons",
+    "Addons Status",
     "Before Allergens", "After Allergens",
+    "Allergens Status",
     "Before Diets", "After Diets",
-    "Label", "Reason",
+    "Diets Status",
   ];
 
   const jsonField = (obj, key) => {
@@ -264,26 +273,46 @@ function exportCompareCsv(dishes, curationLinks, brandName, snapshotPair) {
     return JSON.stringify(val);
   };
 
+  const statusFromExactMatch = (beforeVal, afterVal) => (beforeVal === afterVal ? "NO_CHANGE" : "NULL");
+
   const rows = dishes.map((dish) => {
     const beforeDish = snapshotPair?.before?.get(dish.autoeatDishId) ?? null;
     const afterDish = snapshotPair?.after?.get(dish.autoeatDishId) ?? null;
+    const beforeName = jsonField(beforeDish, "name");
+    const afterName = jsonField(afterDish, "name");
+    const beforeDescription = jsonField(beforeDish, "description");
+    const afterDescription = jsonField(afterDish, "description");
+    const beforeIngredient = jsonField(beforeDish, "ingredients");
+    const afterIngredient = jsonField(afterDish, "ingredients");
+    const beforeAddons = jsonField(beforeDish, "addons");
+    const afterAddons = jsonField(afterDish, "addons");
+    const beforeAllergens = jsonField(beforeDish, "allergens");
+    const afterAllergens = jsonField(afterDish, "allergens");
+    const beforeDiets = jsonField(beforeDish, "diets");
+    const afterDiets = jsonField(afterDish, "diets");
 
     return [
       escapeCsv(brandName),
       escapeCsv(dish.dishId),
       escapeCsv(dish.dishName ?? ""),
-      escapeCsv(jsonField(beforeDish, "name")),
-      escapeCsv(jsonField(afterDish, "name")),
-      escapeCsv(jsonField(beforeDish, "description")),
-      escapeCsv(jsonField(afterDish, "description")),
-      escapeCsv(jsonField(beforeDish, "addons")),
-      escapeCsv(jsonField(afterDish, "addons")),
-      escapeCsv(jsonField(beforeDish, "allergens")),
-      escapeCsv(jsonField(afterDish, "allergens")),
-      escapeCsv(jsonField(beforeDish, "diets")),
-      escapeCsv(jsonField(afterDish, "diets")),
-      "",
-      "",
+      escapeCsv(beforeName),
+      escapeCsv(afterName),
+      escapeCsv(statusFromExactMatch(beforeName, afterName)),
+      escapeCsv(beforeDescription),
+      escapeCsv(afterDescription),
+      escapeCsv(statusFromExactMatch(beforeDescription, afterDescription)),
+      escapeCsv(beforeIngredient),
+      escapeCsv(afterIngredient),
+      escapeCsv(statusFromExactMatch(beforeIngredient, afterIngredient)),
+      escapeCsv(beforeAddons),
+      escapeCsv(afterAddons),
+      escapeCsv(statusFromExactMatch(beforeAddons, afterAddons)),
+      escapeCsv(beforeAllergens),
+      escapeCsv(afterAllergens),
+      escapeCsv(statusFromExactMatch(beforeAllergens, afterAllergens)),
+      escapeCsv(beforeDiets),
+      escapeCsv(afterDiets),
+      escapeCsv(statusFromExactMatch(beforeDiets, afterDiets)),
     ].join(",");
   });
 
@@ -556,7 +585,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
   const [dishes, setDishes] = useState([]);
   const [statusByDishId, setStatusByDishId] = useState({});
   const [snapshotPair, setSnapshotPair] = useState({ before: null, after: null });
-  const [regexModalDishId, setRegexModalDishId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -694,7 +722,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
 
   const statusCounts = useMemo(() => {
     if (!isCompare) return null;
-    const counts = { [STATUS_NEW]: 0, [STATUS_UPDATED]: 0, [STATUS_REGEX]: 0, [STATUS_DELETED]: 0, [STATUS_NO_CHANGE]: 0 };
+    const counts = { [STATUS_NEW]: 0, [STATUS_UPDATED]: 0, [STATUS_DELETED]: 0, [STATUS_NO_CHANGE]: 0 };
     for (const d of dishes) {
       const s = statusByDishId[d.autoeatDishId];
       if (s && counts[s] !== undefined) counts[s] += 1;
@@ -724,10 +752,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
   }
 
   const distinctTimestamps = [...new Set(timestamps.map((r) => r.createdAt))].sort((a, b) => b.localeCompare(a));
-
-  const regexModalDish = regexModalDishId != null
-    ? dishes.find((d) => d.autoeatDishId === regexModalDishId) ?? null
-    : null;
 
   return (
     <>
@@ -841,7 +865,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
               <option value="all">All</option>
               <option value={STATUS_NEW}>New {statusCounts ? `(${statusCounts[STATUS_NEW]})` : ""}</option>
               <option value={STATUS_UPDATED}>Updated {statusCounts ? `(${statusCounts[STATUS_UPDATED]})` : ""}</option>
-              <option value={STATUS_REGEX}>Regex Changes {statusCounts ? `(${statusCounts[STATUS_REGEX]})` : ""}</option>
               <option value={STATUS_DELETED}>Deleted {statusCounts ? `(${statusCounts[STATUS_DELETED]})` : ""}</option>
               <option value={STATUS_NO_CHANGE}>No Change {statusCounts ? `(${statusCounts[STATUS_NO_CHANGE]})` : ""}</option>
             </select>
@@ -881,13 +904,16 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
                   const link = curationLinks[String(dish.autoeatDishId)] ?? null;
                   const status = statusByDishId[dish.autoeatDishId];
                   const rowHighlight = isCompare && status ? STATUS_ROW_CLASS[status] ?? "" : "";
-                  const isRegexRow = status === STATUS_REGEX;
+                  const beforeDish = isCompare ? snapshotPair.before?.get(dish.autoeatDishId) ?? null : null;
+                  const afterDish = isCompare ? snapshotPair.after?.get(dish.autoeatDishId) ?? null : null;
+                  const highlightChangedCell = (field) =>
+                    isCompare && status === STATUS_UPDATED && hasExactFieldChange(beforeDish, afterDish, field)
+                      ? "bg-rose-100"
+                      : "";
                   return (
                     <tr
                       key={dish.dishId}
-                      className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight} ${isRegexRow ? "cursor-pointer" : ""}`}
-                      onClick={isRegexRow ? () => setRegexModalDishId(dish.autoeatDishId) : undefined}
-                      title={isRegexRow ? "Click to view regex changes" : undefined}
+                      className={`border-b border-slate-100 last:border-b-0 text-slate-700 align-top ${rowHighlight}`}
                     >
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {link ? (
@@ -904,13 +930,13 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
                           dish.dishId
                         )}
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-900 whitespace-nowrap">{str(dish.dishName)}</td>
-                      <td className="px-3 py-2 max-w-xs text-slate-600">{str(dish.dishDescription)}</td>
+                      <td className={`px-3 py-2 font-medium text-slate-900 whitespace-nowrap ${highlightChangedCell("name")}`}>{str(dish.dishName)}</td>
+                      <td className={`px-3 py-2 max-w-xs text-slate-600 ${highlightChangedCell("description")}`}>{str(dish.dishDescription)}</td>
                       <td className="px-3 py-2 min-w-[160px]"><MenuTitleChain chain={dish.menuTitleChain} /></td>
-                      <td className="px-3 py-2">{str(dish.ingredients)}</td>
-                      <td className="px-3 py-2">{str(dish.dietDescriptors)}</td>
-                      <td className="px-3 py-2">{str(dish.addonDescriptors)}</td>
-                      <td className="px-3 py-2">{str(dish.allergenDescriptors)}</td>
+                      <td className={`px-3 py-2 ${highlightChangedCell("ingredients")}`}>{str(dish.ingredients)}</td>
+                      <td className={`px-3 py-2 ${highlightChangedCell("diets")}`}>{str(dish.dietDescriptors)}</td>
+                      <td className={`px-3 py-2 ${highlightChangedCell("addons")}`}>{str(dish.addonDescriptors)}</td>
+                      <td className={`px-3 py-2 ${highlightChangedCell("allergens")}`}>{str(dish.allergenDescriptors)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{str(dish.dishTypeName)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{str(dish.courseTypeName)}</td>
                       <td className="px-3 py-2"><CurationList items={dish.mainIngredients} /></td>
@@ -951,13 +977,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack }) {
         )}
       </div>
     </section>
-    <RegexDiffModal
-      open={regexModalDishId != null}
-      onClose={() => setRegexModalDishId(null)}
-      dish={regexModalDish}
-      beforeDish={regexModalDishId != null ? snapshotPair.before?.get(regexModalDishId) ?? null : null}
-      afterDish={regexModalDishId != null ? snapshotPair.after?.get(regexModalDishId) ?? null : null}
-    />
     </>
   );
 }
