@@ -260,8 +260,8 @@ function buildCompareExportRows(dishes, brandName, snapshotPair) {
 
   const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== "";
   const statusFromExactMatch = (beforeVal, afterVal) => {
-    if (beforeVal === afterVal) return "NO_CHANGE";
-    if (hasValue(beforeVal) && !hasValue(afterVal)) return "NO_CHANGE";
+    if (beforeVal === afterVal) return "EXACT_MATCH";
+    if (hasValue(beforeVal) && !hasValue(afterVal)) return "EXACT_MATCH";
     return "";
   };
 

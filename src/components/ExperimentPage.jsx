@@ -5,7 +5,7 @@ import { EmptyState } from "./ui/EmptyState";
 import { Modal } from "./ui/Modal";
 import { deleteAllExperimentRows, deleteExperimentRow, fetchExperimentRows, updateExperimentCellLabel } from "../lib/experiments";
 
-const LABEL_OPTIONS = ["", "REGEX_CHANGES", "MINOR_CHANGES", "MAJOR_CHANGES"];
+const LABEL_OPTIONS = ["", "NO_CHANGE", "MINOR_CHANGES", "MAJOR_CHANGES"];
 
 const COMPARE_EXPORT_HEADERS = [
   "Brand Name", "Dish ID", "Dish Name",
@@ -172,6 +172,25 @@ function DiffColumn({ title, ops, side }) {
   );
 }
 
+function computeColumnCounters(rows, statusKey, labelKey) {
+  let exactMatch = 0;
+  let minorChange = 0;
+  let majorChange = 0;
+  let noChange = 0;
+  let pending = 0;
+  for (const row of rows) {
+    const raw = row?.[statusKey];
+    const status = raw === "NULL" ? "" : raw === "NO_CHANGE" ? "EXACT_MATCH" : raw;
+    const label = row?.[labelKey] ?? "";
+    if (status === "EXACT_MATCH") exactMatch += 1;
+    else if (label === "MINOR_CHANGES" || label === "MINOR_CHANGE") minorChange += 1;
+    else if (label === "MAJOR_CHANGES" || label === "MAJOR_CHANGE") majorChange += 1;
+    else if (label === "NO_CHANGE") noChange += 1;
+    else pending += 1;
+  }
+  return { exactMatch, minorChange, majorChange, noChange, pending, total: rows.length };
+}
+
 function ExperimentPage({ sessionUserId }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -182,6 +201,7 @@ function ExperimentPage({ sessionUserId }) {
   const [success, setSuccess] = useState("");
   const [statusDetail, setStatusDetail] = useState(null);
   const [busyModalLabel, setBusyModalLabel] = useState(false);
+  const [modalLabelStatus, setModalLabelStatus] = useState("");
 
   async function loadRows() {
     if (!sessionUserId) return;
@@ -202,6 +222,10 @@ function ExperimentPage({ sessionUserId }) {
     loadRows();
   }, [sessionUserId]);
 
+  useEffect(() => {
+    setModalLabelStatus("");
+  }, [statusDetail?.rowId, statusDetail?.labelKey]);
+
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
     const q = search.toLowerCase();
@@ -209,6 +233,18 @@ function ExperimentPage({ sessionUserId }) {
       [row.brand_name, row.dish_id, row.dish_name].some((v) => String(v ?? "").toLowerCase().includes(q))
     );
   }, [rows, search]);
+
+  const columnCards = useMemo(() => {
+    const defs = [
+      { title: "Name", statusKey: "name_status", labelKey: "name_label" },
+      { title: "Description", statusKey: "description_status", labelKey: "description_label" },
+      { title: "Ingredient", statusKey: "ingredient_status", labelKey: "ingredient_label" },
+      { title: "Addons", statusKey: "addons_status", labelKey: "addons_label" },
+      { title: "Allergens", statusKey: "allergens_status", labelKey: "allergens_label" },
+      { title: "Diets", statusKey: "diets_status", labelKey: "diets_label" },
+    ];
+    return defs.map((def) => ({ ...def, counts: computeColumnCounters(filteredRows, def.statusKey, def.labelKey) }));
+  }, [filteredRows]);
 
   async function handleDeleteRow(rowId) {
     if (!sessionUserId || !rowId) return;
@@ -258,22 +294,25 @@ function ExperimentPage({ sessionUserId }) {
 
   function renderStatusCell(row, statusKey, fieldLabel, beforeKey, afterKey, labelKey) {
     const raw = row?.[statusKey];
-    const status = raw === "NULL" ? "" : raw;
+    const status = raw === "NULL" ? "" : raw === "NO_CHANGE" ? "EXACT_MATCH" : raw;
+    const label = row?.[labelKey] ?? "";
+    const display = status || label;
+    const toneClass = status === "EXACT_MATCH"
+      ? "bg-emerald-50 text-emerald-800"
+      : label
+        ? "bg-amber-50 text-amber-800"
+        : "bg-rose-50 text-rose-800";
     return (
       <div className="flex items-center gap-2">
-        {status ? (
-          <span>{str(status)}</span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => openStatusDetail(row, fieldLabel, beforeKey, afterKey, labelKey)}
-            className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
-            title={`View ${fieldLabel} before/after`}
-          >
-            <Eye className="h-3 w-3" />
-            View
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => openStatusDetail(row, fieldLabel, beforeKey, afterKey, labelKey)}
+          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:underline ${toneClass}`}
+          title={`View ${fieldLabel} before/after`}
+        >
+          <Eye className="h-3 w-3" />
+          {display ? str(display) : "View"}
+        </button>
       </div>
     );
   }
@@ -281,6 +320,7 @@ function ExperimentPage({ sessionUserId }) {
   async function handleModalLabelChange(nextLabel) {
     if (!statusDetail?.rowId || !statusDetail?.labelKey) return;
     setBusyModalLabel(true);
+    setModalLabelStatus("saving");
     setError("");
     try {
       await updateExperimentCellLabel(sessionUserId, statusDetail.rowId, statusDetail.labelKey, nextLabel);
@@ -288,7 +328,9 @@ function ExperimentPage({ sessionUserId }) {
         prev.map((row) => (row.id === statusDetail.rowId ? { ...row, [statusDetail.labelKey]: nextLabel } : row))
       );
       setStatusDetail((prev) => (prev ? { ...prev, labelValue: nextLabel } : prev));
+      setModalLabelStatus("saved");
     } catch (err) {
+      setModalLabelStatus("error");
       setError(err?.message ?? "Failed to update label.");
     } finally {
       setBusyModalLabel(false);
@@ -342,6 +384,20 @@ function ExperimentPage({ sessionUserId }) {
         </div>
       </div>
       {success ? <p className="text-xs text-emerald-700">{success}</p> : null}
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {columnCards.map((card) => (
+          <div key={card.title} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+            <p className="text-xs font-semibold text-slate-700">{card.title}</p>
+            <div className="mt-1 flex items-center gap-3 text-[11px]">
+              <span className="text-emerald-700">EXACT_MATCH: {card.counts.exactMatch}</span>
+              <span className="text-amber-700">MINOR_CHANGE: {card.counts.minorChange}</span>
+              <span className="text-orange-700">MAJOR_CHANGE: {card.counts.majorChange}</span>
+              <span className="text-blue-700">NO_CHANGE: {card.counts.noChange}</span>
+              <span className="text-rose-700">Pending: {card.counts.pending}</span>
+            </div>
+          </div>
+        ))}
+      </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="max-h-[75vh] overflow-auto">
@@ -419,6 +475,9 @@ function ExperimentPage({ sessionUserId }) {
                   </option>
                 ))}
               </select>
+              {modalLabelStatus === "saving" ? <span className="text-xs text-slate-500">Saving…</span> : null}
+              {modalLabelStatus === "saved" ? <span className="text-xs text-emerald-600">Saved</span> : null}
+              {modalLabelStatus === "error" ? <span className="text-xs text-rose-600">Failed to save</span> : null}
             </div>
             {(() => {
               const { beforeOps, afterOps } = diffLineOps(statusDetail.beforeValue, statusDetail.afterValue);
