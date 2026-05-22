@@ -30,12 +30,75 @@ const STATUS_ROW_CLASS = {
 
 function buildMenuTitleChain(menuTitleId, menuTitlesById) {
   const chain = [];
-  let current = menuTitlesById.get(menuTitleId);
+  const seen = new Set();
+  let current = menuTitlesById.get(String(menuTitleId));
   while (current) {
-    chain.unshift({ title: current.title ?? null, description: current.description ?? null });
-    current = current.parentId != null ? menuTitlesById.get(current.parentId) : null;
+    const currentKey = String(current.autoeatId ?? current.id ?? "");
+    if (currentKey && seen.has(currentKey)) break;
+    if (currentKey) seen.add(currentKey);
+    chain.unshift({
+      title: current.title ?? null,
+      description: current.description ?? null,
+      miscDescriptors: current.miscDescriptors ?? current.miscInfo ?? [],
+      addonDescriptors: current.addonDescriptors ?? current.addons ?? [],
+      dietDescriptors: current.dietDescriptors ?? current.diets ?? [],
+      allergenDescriptors: current.allergenDescriptors ?? current.allergens ?? [],
+    });
+    current = current.parentId != null ? menuTitlesById.get(String(current.parentId)) : null;
   }
   return chain;
+}
+
+function buildMenuTitlesById(menuTitles) {
+  const map = new Map();
+  for (const menuTitle of menuTitles ?? []) {
+    if (menuTitle?.id != null) map.set(String(menuTitle.id), menuTitle);
+    if (menuTitle?.autoeatId != null) map.set(String(menuTitle.autoeatId), menuTitle);
+  }
+  return map;
+}
+
+function hasMeaningfulValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function withLeafMenuTitleDetails(chain, dish) {
+  const leafDetails = {
+    title: dish?.menuTitleName ?? null,
+    description: dish?.menuTitleDescription ?? null,
+    miscDescriptors: dish?.menuTitleMiscDescriptors ?? [],
+    addonDescriptors: dish?.menuTitleAddonDescriptors ?? [],
+    dietDescriptors: dish?.menuTitleDietDescriptors ?? [],
+    allergenDescriptors: dish?.menuTitleAllergenDescriptors ?? [],
+  };
+
+  if (chain.length === 0) {
+    return hasMeaningfulValue(leafDetails.title)
+      || hasMeaningfulValue(leafDetails.description)
+      || hasMeaningfulValue(leafDetails.miscDescriptors)
+      || hasMeaningfulValue(leafDetails.addonDescriptors)
+      || hasMeaningfulValue(leafDetails.dietDescriptors)
+      || hasMeaningfulValue(leafDetails.allergenDescriptors)
+      ? [leafDetails]
+      : [];
+  }
+
+  const next = [...chain];
+  const lastIndex = next.length - 1;
+  next[lastIndex] = {
+    ...next[lastIndex],
+    title: next[lastIndex].title ?? leafDetails.title,
+    description: next[lastIndex].description ?? leafDetails.description,
+    miscDescriptors: hasMeaningfulValue(next[lastIndex].miscDescriptors) ? next[lastIndex].miscDescriptors : leafDetails.miscDescriptors,
+    addonDescriptors: hasMeaningfulValue(next[lastIndex].addonDescriptors) ? next[lastIndex].addonDescriptors : leafDetails.addonDescriptors,
+    dietDescriptors: hasMeaningfulValue(next[lastIndex].dietDescriptors) ? next[lastIndex].dietDescriptors : leafDetails.dietDescriptors,
+    allergenDescriptors: hasMeaningfulValue(next[lastIndex].allergenDescriptors) ? next[lastIndex].allergenDescriptors : leafDetails.allergenDescriptors,
+  };
+  return next;
 }
 
 async function fetchLatestAutoeatDishes(brandId) {
@@ -50,7 +113,7 @@ async function fetchLatestAutoeatDishes(brandId) {
     const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
     const menuAutoeatId = message?.menu?.id;
 
-    const menuTitlesById = new Map((message?.menuTitles ?? []).map((mt) => [mt.id, mt]));
+    const menuTitlesById = buildMenuTitlesById(message?.menuTitles ?? []);
 
     for (const dish of message?.dishes ?? []) {
       if (dish.id != null) {
@@ -93,7 +156,7 @@ async function fetchBrandSnapshotAsOf(brandId, asOf) {
   for (const row of rows) {
     const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
     const menuAutoeatId = message?.menu?.id;
-    const menuTitlesById = new Map((message?.menuTitles ?? []).map((mt) => [mt.id, mt]));
+    const menuTitlesById = buildMenuTitlesById(message?.menuTitles ?? []);
 
     for (const dish of message?.dishes ?? []) {
       if (dish.id != null) {
@@ -240,6 +303,35 @@ function str(v) {
 function curationListToText(items) {
   if (!Array.isArray(items) || items.length === 0) return "";
   return items.map((item) => item.name).join(", ");
+}
+
+function descriptorValueToText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => descriptorValueToText(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (typeof value === "object") {
+    return descriptorValueToText(value.text ?? value.innerText ?? value.name ?? "");
+  }
+  return "";
+}
+
+function menuTitleDescriptorLines(mt) {
+  const descriptors = [
+    ["Misc Descriptors", descriptorValueToText(mt?.miscDescriptors)],
+    ["Addon Descriptors", descriptorValueToText(mt?.addonDescriptors)],
+    ["Diet Descriptors", descriptorValueToText(mt?.dietDescriptors)],
+    ["Allergen Descriptors", descriptorValueToText(mt?.allergenDescriptors)],
+  ];
+
+  return descriptors
+    .filter(([, value]) => value)
+    .map(([label, value]) => `${label}: ${value}`);
 }
 
 function escapeCsv(value) {
@@ -407,6 +499,9 @@ function exportToCsv(dishes, curationLinks, brandName) {
         .map((mt, i) => {
           const lines = [`L${i + 1} Title: ${mt.title ?? ""}`];
           if (mt.description) lines.push(`L${i + 1} Description: ${mt.description}`);
+          for (const line of menuTitleDescriptorLines(mt)) {
+            lines.push(`L${i + 1} ${line}`);
+          }
           return lines.join("\n");
         })
         .join("\n\n"),
@@ -451,9 +546,14 @@ function MenuTitleChain({ chain }) {
   return (
     <div className="flex flex-col gap-1">
       {chain.map((mt, idx) => (
-        <div key={idx}>
+        <div key={idx} className="space-y-1">
           <div className="font-semibold text-slate-800">{mt.title ?? "—"}</div>
           {mt.description && <div className="text-slate-500 text-[11px]">{mt.description}</div>}
+          {menuTitleDescriptorLines(mt).map((line) => (
+            <div key={line} className="text-slate-500 text-[11px] break-words">
+              {line}
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -704,7 +804,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
         const enriched = details.map((d) => ({
           ...d,
           menuAutoeatId: dishMap.get(d.autoeatDishId),
-          menuTitleChain: menuTitleChains.get(d.autoeatDishId) ?? [],
+          menuTitleChain: withLeafMenuTitleDetails(menuTitleChains.get(d.autoeatDishId) ?? [], d),
         }));
         setDishes(enriched);
 
@@ -761,7 +861,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
         const enriched = details.map((d) => ({
           ...d,
           menuAutoeatId: dishMap.get(d.autoeatDishId),
-          menuTitleChain: menuTitleChains.get(d.autoeatDishId) ?? [],
+          menuTitleChain: withLeafMenuTitleDetails(menuTitleChains.get(d.autoeatDishId) ?? [], d),
         }));
         setDishes(enriched);
 

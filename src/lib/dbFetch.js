@@ -122,6 +122,17 @@ export async function fetchPublishedDishIds(dishIds) {
   return new Set((publishedDishIds ?? []).map((id) => String(id)));
 }
 
+async function fetchMenuCurationTaskAiCuratorExportRows(taskId, limitPerTask) {
+  const params = new URLSearchParams({ taskId: String(taskId) });
+  if (Number.isFinite(limitPerTask) && limitPerTask > 0) {
+    params.set("limit", String(limitPerTask));
+  }
+  const res = await fetch(`${API_BASE}/api/menu-curation-task-ai-curator-export?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch task export rows: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows ?? [];
+}
+
 function stringifyCell(value) {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {
@@ -133,6 +144,30 @@ function stringifyCell(value) {
   return String(value);
 }
 
+function descriptorObjectToPlain(value, { omitImageSrc = false } = {}) {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => descriptorObjectToPlain(item, { omitImageSrc }))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .filter(([key]) => !(omitImageSrc && key === "imageSrc"))
+      .map(([, entryValue]) => descriptorObjectToPlain(entryValue, { omitImageSrc }))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(value);
+}
+
+function stringifyJsonCell(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
 function escapeCsvValue(value) {
   const text = stringifyCell(value);
   return text.includes(",") || text.includes('"') || text.includes("\n")
@@ -140,8 +175,458 @@ function escapeCsvValue(value) {
     : text;
 }
 
+function escapeCsvDescriptorValue(value, { omitImageSrc = false } = {}) {
+  const text = descriptorObjectToPlain(value, { omitImageSrc });
+  return text.includes(",") || text.includes('"') || text.includes("\n")
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
+}
+
+function buildAiCuratorMenuTitleCell(menuTitle) {
+  if (!Array.isArray(menuTitle) || menuTitle.length === 0) return "";
+  return menuTitle
+    .map((item, index) => {
+      const lines = [`L${index + 1} Title: ${item?.title ?? ""}`];
+      if (item?.description) lines.push(`L${index + 1} Description: ${item.description}`);
+      for (const line of menuTitleDescriptorLines(item)) {
+        lines.push(`L${index + 1} ${line}`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
 function findLatestAiSnapshot(rows) {
   return (rows ?? []).find((row) => String(row?.type ?? "").toUpperCase() === "AI") ?? null;
+}
+
+async function fetchBrandLatestMessageRows(brandId) {
+  const res = await fetch(`${API_BASE}/api/brand-latest-message?brandId=${brandId}`);
+  if (!res.ok) throw new Error(`Failed to fetch latest brand messages: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows ?? [];
+}
+
+async function fetchBrandDishDetails(autoeatDishIds) {
+  const res = await fetch(`${API_BASE}/api/brand-dish-details`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ autoeatDishIds }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch dish details: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows ?? [];
+}
+
+function buildLatestMenuTitleChain(menuTitleId, menuTitlesById) {
+  const chain = [];
+  const seen = new Set();
+  let current = menuTitlesById.get(String(menuTitleId));
+  while (current) {
+    const currentKey = String(current.autoeatId ?? current.id ?? "");
+    if (currentKey && seen.has(currentKey)) break;
+    if (currentKey) seen.add(currentKey);
+    chain.unshift({
+      title: current.title ?? null,
+      description: current.description ?? null,
+      miscDescriptors: current.miscDescriptors ?? current.miscInfo ?? [],
+      addonDescriptors: current.addonDescriptors ?? current.addons ?? [],
+      dietDescriptors: current.dietDescriptors ?? current.diets ?? [],
+      allergenDescriptors: current.allergenDescriptors ?? current.allergens ?? [],
+    });
+    current = current.parentId != null ? menuTitlesById.get(String(current.parentId)) : null;
+  }
+  return chain;
+}
+
+function buildLatestMenuTitlesById(menuTitles) {
+  const map = new Map();
+  for (const menuTitle of menuTitles ?? []) {
+    if (menuTitle?.id != null) map.set(String(menuTitle.id), menuTitle);
+    if (menuTitle?.autoeatId != null) map.set(String(menuTitle.autoeatId), menuTitle);
+  }
+  return map;
+}
+
+function hasMeaningfulMenuTitleValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function withLatestLeafMenuTitleDetails(chain, dish) {
+  const leafDetails = {
+    title: dish?.menuTitleName ?? null,
+    description: dish?.menuTitleDescription ?? null,
+    miscDescriptors: dish?.menuTitleMiscDescriptors ?? [],
+    addonDescriptors: dish?.menuTitleAddonDescriptors ?? [],
+    dietDescriptors: dish?.menuTitleDietDescriptors ?? [],
+    allergenDescriptors: dish?.menuTitleAllergenDescriptors ?? [],
+  };
+
+  if (chain.length === 0) {
+    return hasMeaningfulMenuTitleValue(leafDetails.title)
+      || hasMeaningfulMenuTitleValue(leafDetails.description)
+      || hasMeaningfulMenuTitleValue(leafDetails.miscDescriptors)
+      || hasMeaningfulMenuTitleValue(leafDetails.addonDescriptors)
+      || hasMeaningfulMenuTitleValue(leafDetails.dietDescriptors)
+      || hasMeaningfulMenuTitleValue(leafDetails.allergenDescriptors)
+      ? [leafDetails]
+      : [];
+  }
+
+  const next = [...chain];
+  const lastIndex = next.length - 1;
+  next[lastIndex] = {
+    ...next[lastIndex],
+    title: next[lastIndex].title ?? leafDetails.title,
+    description: next[lastIndex].description ?? leafDetails.description,
+    miscDescriptors: hasMeaningfulMenuTitleValue(next[lastIndex].miscDescriptors) ? next[lastIndex].miscDescriptors : leafDetails.miscDescriptors,
+    addonDescriptors: hasMeaningfulMenuTitleValue(next[lastIndex].addonDescriptors) ? next[lastIndex].addonDescriptors : leafDetails.addonDescriptors,
+    dietDescriptors: hasMeaningfulMenuTitleValue(next[lastIndex].dietDescriptors) ? next[lastIndex].dietDescriptors : leafDetails.dietDescriptors,
+    allergenDescriptors: hasMeaningfulMenuTitleValue(next[lastIndex].allergenDescriptors) ? next[lastIndex].allergenDescriptors : leafDetails.allergenDescriptors,
+  };
+  return next;
+}
+
+function descriptorValueToText(value, { omitImageSrc = false } = {}) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return descriptorObjectToPlain(value, { omitImageSrc });
+}
+
+function menuTitleDescriptorLines(mt) {
+  const descriptors = [
+    ["Misc Descriptors", descriptorValueToText(mt?.miscDescriptors)],
+    ["Addon Descriptors", descriptorValueToText(mt?.addonDescriptors)],
+    ["Diet Descriptors", descriptorValueToText(mt?.dietDescriptors, { omitImageSrc: true })],
+    ["Allergen Descriptors", descriptorValueToText(mt?.allergenDescriptors)],
+  ];
+
+  return descriptors
+    .filter(([, value]) => value)
+    .map(([label, value]) => `${label}: ${value}`);
+}
+
+function buildLatestMenuTitleCell(chain) {
+  return (chain ?? [])
+    .map((mt, i) => {
+      const lines = [`L${i + 1} Title: ${mt.title ?? ""}`];
+      if (mt.description) lines.push(`L${i + 1} Description: ${mt.description}`);
+      for (const line of menuTitleDescriptorLines(mt)) {
+        lines.push(`L${i + 1} ${line}`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
+function buildLatestBrandCsvRows(dishes, curationLinks, brandName) {
+  return (dishes ?? []).map((dish) => {
+    const link = curationLinks[String(dish.autoeatDishId)] ?? "";
+    const dishIdCell = link
+      ? `=HYPERLINK("${link}","${dish.dishId}")`
+      : dish.dishId;
+
+    return {
+      brand_name: brandName ?? "",
+      dish_id: dishIdCell,
+      dish_name: dish.dishName ?? "",
+      description: dish.dishDescription ?? "",
+      menu_title: buildLatestMenuTitleCell(dish.menuTitleChain ?? []),
+      ingredient_free_text: dish.ingredients ?? "",
+      diet_descriptors: dish.dietDescriptors ?? "",
+      addon_descriptors: dish.addonDescriptors ?? "",
+      misc_descriptors: dish.miscDescriptors ?? "",
+      allergen_descriptors: dish.allergenDescriptors ?? "",
+      dish_type: dish.dishTypeName ?? "",
+      course_type: dish.courseTypeName ?? "",
+      main_ingredients: (dish.mainIngredients ?? []).map((item) => item?.name).filter(Boolean),
+      additional_ingredients: (dish.additionalIngredients ?? []).map((item) => item?.name).filter(Boolean),
+      choice_ingredients: (dish.choiceIngredients ?? []).map((item) => item?.name).filter(Boolean),
+      diets: (dish.diets ?? []).map((item) => item?.name).filter(Boolean),
+      allergens: (dish.allergens ?? []).map((item) => item?.name).filter(Boolean),
+      diet_correctness_score: "",
+      diet_correctness_reason: "",
+      addon_correctness_score: "",
+      addon_correctness_reason: "",
+      dish_type_correctness_score: "",
+      dish_type_correctness_reason: "",
+      ingredient_correctness_score: "",
+      ingredient_correctness_reason: "",
+      allergen_correctness_score: "",
+      allergen_correctness_reason: "",
+    };
+  });
+}
+
+const LATEST_BRAND_EXPORT_COLUMNS = [
+  "brand_name",
+  "dish_id",
+  "dish_name",
+  "description",
+  "menu_title",
+  "ingredient_free_text",
+  "diet_descriptors",
+  "addon_descriptors",
+  "misc_descriptors",
+  "allergen_descriptors",
+  "dish_type",
+  "course_type",
+  "main_ingredients",
+  "additional_ingredients",
+  "choice_ingredients",
+  "diets",
+  "allergens",
+  "diet_correctness_score",
+  "diet_correctness_reason",
+  "addon_correctness_score",
+  "addon_correctness_reason",
+  "dish_type_correctness_score",
+  "dish_type_correctness_reason",
+  "ingredient_correctness_score",
+  "ingredient_correctness_reason",
+  "allergen_correctness_score",
+  "allergen_correctness_reason",
+];
+
+async function buildLatestBrandExportRows({ brandId, brandName, limit, onProgress } = {}) {
+  const rows = await fetchBrandLatestMessageRows(brandId);
+  const dishMap = new Map();
+  const menuTitleChains = new Map();
+
+  for (const row of rows) {
+    const message = typeof row.message === "string" ? JSON.parse(row.message) : row.message;
+    const menuAutoeatId = message?.menu?.id;
+    const menuTitlesById = buildLatestMenuTitlesById(message?.menuTitles ?? []);
+
+    for (const dish of message?.dishes ?? []) {
+      if (dish?.id == null) continue;
+      dishMap.set(dish.id, menuAutoeatId);
+      if (dish.menuTitleId != null) {
+        menuTitleChains.set(dish.id, buildLatestMenuTitleChain(dish.menuTitleId, menuTitlesById));
+      }
+    }
+  }
+
+  const autoeatDishIds = [...dishMap.keys()];
+  const details = await fetchBrandDishDetails(autoeatDishIds);
+  const enriched = details.map((dish) => ({
+    ...dish,
+    menuAutoeatId: dishMap.get(dish.autoeatDishId),
+    menuTitleChain: withLatestLeafMenuTitleDetails(menuTitleChains.get(dish.autoeatDishId) ?? [], dish),
+  }));
+
+  const targetDishes = Number.isFinite(limit) && limit > 0
+    ? enriched.slice(0, limit)
+    : enriched;
+
+  const pairs = targetDishes.map((dish) => ({
+    dishId: String(dish.autoeatDishId),
+    menuAutoeatId: String(dish.menuAutoeatId ?? ""),
+  }));
+  const curationLinks = await fetchDishCurationLinks(pairs);
+
+  const exportRows = buildLatestBrandCsvRows(targetDishes, curationLinks, brandName);
+  const total = exportRows.length;
+  exportRows.forEach((_, index) => onProgress?.({ done: index + 1, total }));
+
+  return exportRows;
+}
+
+export async function buildLatestBrandExportCsv({ brandId, brandName, limit, onProgress } = {}) {
+  const exportRows = await buildLatestBrandExportRows({ brandId, brandName, limit, onProgress });
+  const total = exportRows.length;
+
+  const csvLines = [
+    LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
+    ...exportRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => (
+      column === "diet_descriptors"
+        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
+        : column === "addon_descriptors"
+        || column === "misc_descriptors"
+        || column === "allergen_descriptors"
+          ? escapeCsvDescriptorValue(row[column])
+          : escapeCsvValue(row[column])
+    )).join(",")),
+  ];
+
+  const safeBrand = String(brandName ?? "brand")
+    .trim()
+    .replace(/[^\w-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "brand";
+
+  return {
+    csvContent: csvLines.join("\n"),
+    filename: `${safeBrand}_dishes.csv`,
+    totalRows: total,
+  };
+}
+
+export async function buildCombinedLatestBrandsExportCsv({ brands, onProgress } = {}) {
+  const selectedBrands = Array.isArray(brands) ? brands : [];
+  const allRows = [];
+  let completedBrands = 0;
+
+  for (const brand of selectedBrands) {
+    const brandRows = await buildLatestBrandExportRows({
+      brandId: brand.brandId,
+      brandName: brand.brandName,
+    });
+    allRows.push(...brandRows);
+    completedBrands += 1;
+    onProgress?.({
+      currentBrand: brand.brandName,
+      doneBrands: completedBrands,
+      totalBrands: selectedBrands.length,
+      totalRows: allRows.length,
+    });
+  }
+
+  const csvLines = [
+    LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
+    ...allRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => (
+      column === "diet_descriptors"
+        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
+        : column === "addon_descriptors"
+        || column === "misc_descriptors"
+        || column === "allergen_descriptors"
+          ? escapeCsvDescriptorValue(row[column])
+          : escapeCsvValue(row[column])
+    )).join(",")),
+  ];
+
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  return {
+    csvContent: csvLines.join("\n"),
+    filename: `latest_brands_export_${stamp}.csv`,
+    totalRows: allRows.length,
+  };
+}
+
+const AI_CURATOR_EXPORT_COLUMNS = [
+  "brand_name",
+  "cuisine_type",
+  "location_type",
+  "dish_id",
+  "menu_title",
+  "dish_name",
+  "dish_description",
+  "ingredient_free_text",
+  "diet_descriptors",
+  "addon_descriptors",
+  "misc_descriptors",
+  "allergen_descriptors",
+  "dish_type_ai",
+  "dish_type_ai_new",
+  "dish_type_curator",
+  "course_type_ai",
+  "course_type_ai_new",
+  "course_type_curator",
+  "diet_ai",
+  "diet_ai_new",
+  "diet_curator",
+  "allergen_ai",
+  "allergen_ai_new",
+  "allergen_curator",
+  "main_ingredient_ai",
+  "main_ingredient_ai_new",
+  "main_ingredient_curator",
+  "choice_ingredient_ai",
+  "choice_ingredient_ai_new",
+  "choice_ingredient_curator",
+  "additional_ingredient_ai",
+  "additional_ingredient_ai_new",
+  "additional_ingredient_curator",
+  "ai_created_at",
+  "ai_created_at_new",
+  "curator_created_at",
+];
+
+function normalizeAiCuratorExportRows(rows) {
+  return (rows ?? []).map((row) => ({
+    brand_name: row.brandName ?? "",
+    cuisine_type: row.cuisineType ?? "",
+    location_type: row.locationType ?? "",
+    dish_id: row.dishId ?? "",
+    menu_title: buildAiCuratorMenuTitleCell(row.menuTitle),
+    dish_name: row.dishName ?? "",
+    dish_description: row.dishDescription ?? "",
+    ingredient_free_text: row.ingredientFreeText ?? "",
+    diet_descriptors: row.dietDescriptors ?? "",
+    addon_descriptors: row.addonDescriptors ?? "",
+    misc_descriptors: row.miscDescriptors ?? "",
+    allergen_descriptors: row.allergenDescriptors ?? "",
+    dish_type_ai: row.dishTypeAI ?? "",
+    dish_type_ai_new: row.dishTypeAINew ?? "",
+    dish_type_curator: row.dishTypeCurator ?? "",
+    course_type_ai: row.courseTypeAI ?? "",
+    course_type_ai_new: row.courseTypeAINew ?? "",
+    course_type_curator: row.courseTypeCurator ?? "",
+    diet_ai: row.dietAI ?? [],
+    diet_ai_new: row.dietAINew ?? [],
+    diet_curator: row.dietCurator ?? [],
+    allergen_ai: row.allergenAI ?? [],
+    allergen_ai_new: row.allergenAINew ?? [],
+    allergen_curator: row.allergenCurator ?? [],
+    main_ingredient_ai: row.mainIngredientAI ?? [],
+    main_ingredient_ai_new: row.mainIngredientAINew ?? [],
+    main_ingredient_curator: row.mainIngredientCurator ?? [],
+    choice_ingredient_ai: row.choiceIngredientAI ?? [],
+    choice_ingredient_ai_new: row.choiceIngredientAINew ?? [],
+    choice_ingredient_curator: row.choiceIngredientCurator ?? [],
+    additional_ingredient_ai: row.additionalIngredientAI ?? [],
+    additional_ingredient_ai_new: row.additionalIngredientAINew ?? [],
+    additional_ingredient_curator: row.additionalIngredientCurator ?? [],
+    ai_created_at: row.aiCreatedAt ?? "",
+    ai_created_at_new: row.aiCreatedAtNew ?? "",
+    curator_created_at: row.curatorCreatedAt ?? "",
+  }));
+}
+
+export async function buildCombinedAiCuratorTaskExportCsv({ brands, limitPerTask, onProgress } = {}) {
+  const selectedBrands = (Array.isArray(brands) ? brands : []).filter((brand) => brand?.menuCurationTaskId);
+  const allRows = [];
+  let completedBrands = 0;
+
+  for (const brand of selectedBrands) {
+    const taskRows = await fetchMenuCurationTaskAiCuratorExportRows(brand.menuCurationTaskId, limitPerTask);
+    const normalizedRows = normalizeAiCuratorExportRows(taskRows);
+    allRows.push(...normalizedRows);
+    completedBrands += 1;
+    onProgress?.({
+      currentBrand: brand.brandName,
+      doneBrands: completedBrands,
+      totalBrands: selectedBrands.length,
+      totalRows: allRows.length,
+    });
+  }
+
+  const csvLines = [
+    AI_CURATOR_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
+    ...allRows.map((row) => AI_CURATOR_EXPORT_COLUMNS.map((column) => (
+      column === "diet_descriptors"
+        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
+        : column === "addon_descriptors"
+        || column === "misc_descriptors"
+        || column === "allergen_descriptors"
+          ? escapeCsvDescriptorValue(row[column])
+          : escapeCsvValue(row[column])
+    )).join(",")),
+  ];
+
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  return {
+    csvContent: csvLines.join("\n"),
+    filename: `ai_curator_task_export_${stamp}.csv`,
+    totalRows: allRows.length,
+    totalBrands: selectedBrands.length,
+  };
 }
 
 export async function buildFilteredDishesExportCsv({
