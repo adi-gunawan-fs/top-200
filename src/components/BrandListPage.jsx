@@ -2,7 +2,11 @@ import { useEffect, useState, useMemo } from "react";
 import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Clock, GitCompare, Download } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
-import { buildCombinedAiCuratorTaskExportCsv, buildCombinedLatestBrandsExportCsv } from "../lib/dbFetch";
+import {
+  buildCombinedAiCuratorTaskExportCsv,
+  buildCombinedLatestBrandsExportCsv,
+  buildCombinedTierOneTaskExportCsv,
+} from "../lib/dbFetch";
 import { downloadExportFile } from "../utils/exportComparison";
 
 const PAGE_SIZE = 20;
@@ -62,6 +66,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
   const [selectedBrandIds, setSelectedBrandIds] = useState(() => new Set());
   const [exportingLatest, setExportingLatest] = useState(false);
   const [exportingAiCurator, setExportingAiCurator] = useState(false);
+  const [exportingTierOne, setExportingTierOne] = useState(false);
   const [aiCuratorLimit, setAiCuratorLimit] = useState("");
   const [exportProgress, setExportProgress] = useState("");
 
@@ -174,6 +179,31 @@ function BrandListPage({ onBack, onSelectBrand }) {
     }
   }
 
+  async function handleExportTierOneSelected() {
+    if (selectedBrandsWithTask.length === 0) return;
+    const parsedLimit = aiCuratorLimit.trim() ? parseInt(aiCuratorLimit, 10) : null;
+    const limitPerTask = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null;
+
+    setExportingTierOne(true);
+    try {
+      setExportProgress(`Preparing ${selectedBrandsWithTask.length} tier 1 task exports...`);
+      const { csvContent, filename, totalRows } = await buildCombinedTierOneTaskExportCsv({
+        brands: selectedBrandsWithTask,
+        limitPerTask,
+        onProgress: ({ currentBrand, doneBrands, totalBrands, totalRows: progressRows }) => {
+          setExportProgress(`Preparing ${currentBrand} (${doneBrands}/${totalBrands}) · ${progressRows} rows`);
+        },
+      });
+      downloadExportFile(csvContent, "text/csv;charset=utf-8;", filename);
+      setExportProgress(`Downloaded Tier 1 export · ${totalRows} rows.`);
+    } catch (err) {
+      setError(err.message || "Failed to export selected tier 1 task rows.");
+      setExportProgress("");
+    } finally {
+      setExportingTierOne(false);
+    }
+  }
+
   if (loading) {
     return (
       <section className="flex flex-col items-center justify-center gap-3 py-32">
@@ -225,7 +255,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
             variant="tonal"
             tone="info"
             onClick={toggleFilteredSelection}
-            disabled={filteredBrandIds.length === 0 || exportingLatest || exportingAiCurator}
+            disabled={filteredBrandIds.length === 0 || exportingLatest || exportingAiCurator || exportingTierOne}
           >
             {allFilteredSelected ? "Clear filtered" : "Select filtered"}
           </Button>
@@ -239,7 +269,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
           <Button
             tone="info"
             onClick={handleExportLatestSelected}
-            disabled={selectedBrands.length === 0 || exportingLatest || exportingAiCurator}
+            disabled={selectedBrands.length === 0 || exportingLatest || exportingAiCurator || exportingTierOne}
           >
             {exportingLatest ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             Export 1 Latest CSV ({selectedBrands.length})
@@ -250,14 +280,23 @@ function BrandListPage({ onBack, onSelectBrand }) {
             placeholder="Rows/task"
             value={aiCuratorLimit}
             onChange={(e) => setAiCuratorLimit(e.target.value)}
-            disabled={exportingLatest || exportingAiCurator}
+            disabled={exportingLatest || exportingAiCurator || exportingTierOne}
             className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
           />
           <Button
             variant="tonal"
             tone="info"
+            onClick={handleExportTierOneSelected}
+            disabled={selectedBrandsWithTask.length === 0 || exportingLatest || exportingAiCurator || exportingTierOne}
+          >
+            {exportingTierOne ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Export Tier 1 ({selectedBrandsWithTask.length})
+          </Button>
+          <Button
+            variant="tonal"
+            tone="info"
             onClick={handleExportAiCuratorSelected}
-            disabled={selectedBrandsWithTask.length === 0 || exportingLatest || exportingAiCurator}
+            disabled={selectedBrandsWithTask.length === 0 || exportingLatest || exportingAiCurator || exportingTierOne}
           >
             {exportingAiCurator ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             Export AI vs Curator ({selectedBrandsWithTask.length})
@@ -277,7 +316,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
                     if (element) element.indeterminate = someFilteredSelected && !allFilteredSelected;
                   }}
                   onChange={toggleFilteredSelection}
-                  disabled={filteredBrandIds.length === 0 || exportingLatest}
+                  disabled={filteredBrandIds.length === 0 || exportingLatest || exportingAiCurator || exportingTierOne}
                 />
               </th>
               <th className="w-28 px-3 py-2.5">AUTOEAT ID</th>
@@ -308,7 +347,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
                       checked={selectedBrandIds.has(String(brand.brandId))}
                       onChange={() => toggleBrandSelection(brand.brandId)}
                       onClick={(e) => e.stopPropagation()}
-                      disabled={exportingLatest || exportingAiCurator}
+                      disabled={exportingLatest || exportingAiCurator || exportingTierOne}
                     />
                   </td>
                   <td className="px-3 py-2 font-medium text-slate-900">{brand.autoeatId}</td>

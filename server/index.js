@@ -572,7 +572,7 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
               location_types."name"        AS "locationType",
               ds."menuCurationTaskId",
               ds."dishId",
-              ds."styledName"              AS "dishName",
+              REPLACE(REPLACE(ds."styledName", '<p>', ''), '</p>', '') AS "dishName",
               ds."createdAt",
               ds."dishTypeId",
               ds."courseTypeId",
@@ -632,19 +632,7 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
             AND d."isEnabled" = true
             AND d."isFake" = false
             AND d."isDeleted" = false
-          ORDER BY
-            ds."dishId",
-            CASE
-              WHEN ds."createdAt" = (
-                SELECT MAX("createdAt")
-                FROM "dishSnapshots"
-                WHERE "menuCurationTaskId" = $1
-                  AND "type" = 'AI'
-              )
-              THEN 0
-              ELSE 1
-            END,
-            ds."createdAt" DESC
+          ORDER BY ds."dishId", ds."createdAt" DESC
       ),
       curator_base AS (
           SELECT DISTINCT ON (ds."dishId")
@@ -766,6 +754,182 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
     res.json({ rows });
   } catch (err) {
     console.error("menu-curation-task-ai-curator-export error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read-only export rows for a single menu curation task filtered to AI tier 1 dishes.
+app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
+  const taskId = parseInt(req.query.taskId, 10);
+  const limit = parseInt(req.query.limit ?? "", 10);
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? limit : null;
+  if (!taskId) return res.status(400).json({ error: "taskId required" });
+
+  try {
+    const { rows } = await pool.query(
+      `WITH ai_base AS (
+          SELECT DISTINCT ON (ds."dishId")
+              brands."name"                AS "brandName",
+              cuisine_types."name"         AS "cuisineType",
+              location_types."name"        AS "locationType",
+              ds."menuCurationTaskId",
+              ds."dishId",
+              REPLACE(REPLACE(ds."styledName", '<p>', ''), '</p>', '') AS "dishName",
+              ds."createdAt",
+              ds."dishTypeId",
+              ds."courseTypeId",
+              ds."dietIds",
+              ds."allergenIds",
+              ds."mainIngredientIds",
+              ds."choiceIngredientIds",
+              ds."additionalIngredientIds",
+              ds."tier"                    AS "suggestedTier",
+              d."description"              AS "dishDescription",
+              d."ingredients",
+              d."dietDescriptors",
+              d."addonDescriptors",
+              d."miscDescriptors",
+              d."allergenDescriptors",
+              d."menuTitleId"
+          FROM "dishSnapshots" ds
+          LEFT JOIN "dishes" d              ON d.id = ds."dishId"
+          LEFT JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
+          LEFT JOIN "menus"                 ON mct."menuId" = menus.id
+          LEFT JOIN "brands"                ON menus."brandId" = brands.id
+          LEFT JOIN "cuisineTypes" cuisine_types ON cuisine_types.id = brands."cuisineTypeId"
+          LEFT JOIN "locationTypes" location_types ON location_types.id = brands."mainLocationTypeId"
+          WHERE ds."menuCurationTaskId" = $1
+            AND ds."type" = 'AI'
+            AND d."tier" = '1'
+            AND d."isEnabled" = true
+            AND d."isFake" = false
+            AND d."isDeleted" = false
+            AND ds."createdAt" = (
+                SELECT MAX("createdAt")
+                FROM "dishSnapshots"
+                WHERE "menuCurationTaskId" = $1
+                  AND "type" = 'AI'
+                  AND "createdAt" < (
+                      SELECT MAX("createdAt")
+                      FROM "dishSnapshots"
+                      WHERE "menuCurationTaskId" = $1
+                        AND "type" = 'CURATOR'
+                  )
+            )
+          ORDER BY ds."dishId", ds."createdAt" DESC
+      ),
+      curator_base AS (
+          SELECT DISTINCT ON (ds."dishId")
+              ds."dishId",
+              ds."createdAt"               AS "curatorCreatedAt",
+              ds."dishTypeId",
+              ds."courseTypeId",
+              ds."dietIds",
+              ds."allergenIds",
+              ds."mainIngredientIds",
+              ds."choiceIngredientIds",
+              ds."additionalIngredientIds",
+              ds."tier"                    AS "curatedTier"
+          FROM "dishSnapshots" ds
+          WHERE ds."menuCurationTaskId" = $1
+            AND ds."type" = 'CURATOR'
+          ORDER BY ds."dishId", ds."createdAt" DESC
+      )
+      SELECT
+          b."brandName",
+          b."cuisineType",
+          b."locationType",
+          '=HYPERLINK("https://menu-curator.foodstyles.com/menu-curation-tasks/'
+            || b."menuCurationTaskId"
+            || '?dishIds%5B0%5D='
+            || b."dishId"
+            || '&shouldScrollToDish=true","'
+            || b."dishId"
+            || '")'                                                                                AS "dishId",
+          mh."menuTitle",
+          b."dishName",
+          b."dishDescription",
+          b."ingredients"                                                                          AS "ingredientFreeText",
+          b."dietDescriptors"                                                                      AS "dietDescriptors",
+          b."addonDescriptors"                                                                     AS "addonDescriptors",
+          b."miscDescriptors"                                                                      AS "miscDescriptors",
+          b."allergenDescriptors"                                                                  AS "allergenDescriptors",
+          b."suggestedTier",
+          c."curatedTier",
+          dt_ai."name"                                                                             AS "dishTypeAI",
+          dt_c."name"                                                                              AS "dishTypeCurator",
+          ct_ai."name"                                                                             AS "courseTypeAI",
+          ct_c."name"                                                                              AS "courseTypeCurator",
+          (SELECT array_agg(name ORDER BY name) FROM diets       WHERE id = ANY(b."dietIds"))                    AS "dietAI",
+          (SELECT array_agg(name ORDER BY name) FROM diets       WHERE id = ANY(c."dietIds"))                    AS "dietCurator",
+          (SELECT array_agg(name ORDER BY name) FROM allergens   WHERE id = ANY(b."allergenIds"))                AS "allergenAI",
+          (SELECT array_agg(name ORDER BY name) FROM allergens   WHERE id = ANY(c."allergenIds"))                AS "allergenCurator",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."mainIngredientIds"))          AS "mainIngredientAI",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."mainIngredientIds"))          AS "mainIngredientCurator",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."choiceIngredientIds"))        AS "choiceIngredientAI",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."choiceIngredientIds"))        AS "choiceIngredientCurator",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."additionalIngredientIds"))    AS "additionalIngredientAI",
+          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."additionalIngredientIds"))    AS "additionalIngredientCurator",
+          b."createdAt"                                                                            AS "aiCreatedAt",
+          c."curatorCreatedAt"
+      FROM ai_base b
+      LEFT JOIN curator_base c   ON c."dishId" = b."dishId"
+      LEFT JOIN "dishTypes"   dt_ai ON dt_ai."id" = b."dishTypeId"
+      LEFT JOIN "courseTypes" ct_ai ON ct_ai."id" = b."courseTypeId"
+      LEFT JOIN "dishTypes"   dt_c  ON dt_c."id"  = c."dishTypeId"
+      LEFT JOIN "courseTypes" ct_c  ON ct_c."id"  = c."courseTypeId"
+      LEFT JOIN LATERAL (
+          WITH RECURSIVE menu_hierarchy AS (
+              SELECT
+                "id",
+                "parentId",
+                "title",
+                "description",
+                "miscDescriptors",
+                "addonDescriptors",
+                "dietDescriptors",
+                "allergenDescriptors",
+                0 AS lvl
+              FROM "menuTitles"
+              WHERE "id" = b."menuTitleId"
+
+              UNION ALL
+
+              SELECT
+                m."id",
+                m."parentId",
+                m."title",
+                m."description",
+                m."miscDescriptors",
+                m."addonDescriptors",
+                m."dietDescriptors",
+                m."allergenDescriptors",
+                h.lvl + 1
+              FROM "menuTitles" m
+              INNER JOIN menu_hierarchy h ON m."id" = h."parentId"
+              WHERE h."id" <> h."parentId"
+          )
+          SELECT json_agg(
+                   json_build_object(
+                     'title', "title",
+                     'description', "description",
+                     'miscDescriptors', "miscDescriptors",
+                     'addonDescriptors', "addonDescriptors",
+                     'dietDescriptors', "dietDescriptors",
+                     'allergenDescriptors', "allergenDescriptors"
+                   )
+                   ORDER BY lvl DESC
+                 ) AS "menuTitle"
+          FROM menu_hierarchy
+      ) mh ON true
+      ORDER BY b."dishId"
+      LIMIT COALESCE($2::int, 2147483647)`,
+      [taskId, normalizedLimit],
+    );
+
+    res.json({ rows });
+  } catch (err) {
+    console.error("menu-curation-task-tier-one-export error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
