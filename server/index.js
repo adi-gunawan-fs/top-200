@@ -1060,13 +1060,18 @@ app.get("/api/menus", async (req, res) => {
   try {
     const countParams = params.slice();
     const { rows: countRows } = await pool.query(
-      `SELECT COUNT(*)::int AS total
+      `SELECT
+         COUNT(*)::int                          AS total,
+         COUNT(DISTINCT b.id)::int              AS "brandCount",
+         COALESCE(SUM(m."dishCount"), 0)::int   AS "dishTotal"
        FROM menus m
        INNER JOIN brands b ON b.id = m."brandId"
        WHERE ${whereSql}`,
       countParams,
     );
     const total = countRows[0]?.total ?? 0;
+    const brandCount = countRows[0]?.brandCount ?? 0;
+    const dishTotal = countRows[0]?.dishTotal ?? 0;
 
     const offset = page * pageSize;
     params.push(pageSize);
@@ -1095,9 +1100,94 @@ app.get("/api/menus", async (req, res) => {
       params,
     );
 
-    res.json({ rows, page, pageSize, total });
+    res.json({ rows, page, pageSize, total, brandCount, dishTotal });
   } catch (err) {
     console.error("menus error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/menus-random-sample?limit=500&...filters
+// Returns up to `limit` random menus, one per brand, matching the same filters as /api/menus.
+app.get("/api/menus-random-sample", async (req, res) => {
+  const rawLimit = parseInt(req.query.limit ?? "500", 10) || 500;
+  const limit = Math.min(2000, Math.max(1, rawLimit));
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const cuisineTypeId = parseInt(req.query.cuisineTypeId, 10);
+  const locationTypeId = parseInt(req.query.locationTypeId, 10);
+  const rawTop200 = typeof req.query.isTop200 === "string" ? req.query.isTop200.toLowerCase() : "";
+  const isTop200Filter = rawTop200 === "true" ? true : rawTop200 === "false" ? false : null;
+
+  const params = [];
+  const where = [
+    `m."status" = 'INCLUDED'`,
+    `m."isDeleted" = false`,
+    `m."isFake" = false`,
+    `b."status" = 'INCLUDED'`,
+  ];
+
+  if (search) {
+    params.push(`%${search}%`);
+    where.push(`b."name" ILIKE $${params.length}`);
+  }
+  if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
+    params.push(cuisineTypeId);
+    where.push(`m."cuisineTypeId" = $${params.length}`);
+  }
+  if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
+    params.push(locationTypeId);
+    where.push(`b."mainLocationTypeId" = $${params.length}`);
+  }
+  if (isTop200Filter !== null) {
+    params.push(isTop200Filter);
+    where.push(`b."isTop200" = $${params.length}`);
+  }
+
+  params.push(limit);
+  const limitIdx = params.length;
+
+  try {
+    // Stratified sample by (cuisineType, locationType, isTop200):
+    //   1. one random menu per brand (so one brand can't dominate)
+    //   2. rank within each (cuisine, location, top200) bucket by random()
+    //   3. round-robin across buckets until LIMIT reached
+    const { rows } = await pool.query(
+      `WITH one_per_brand AS (
+         SELECT DISTINCT ON (m."brandId")
+           m.id                  AS "menuId",
+           m."brandId",
+           b.name                AS "brandName",
+           ct.name               AS "cuisineType",
+           lt.name               AS "locationType",
+           m."dishCount"         AS "dishCount",
+           b."isTop200"          AS "isTop200"
+         FROM menus m
+         INNER JOIN brands b ON b.id = m."brandId"
+         LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
+         WHERE ${where.join(" AND ")}
+         ORDER BY m."brandId", random()
+       ),
+       ranked AS (
+         SELECT
+           opb.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY COALESCE("cuisineType", '—'),
+                          COALESCE("locationType", '—'),
+                          "isTop200"
+             ORDER BY random()
+           ) AS bucket_rn
+         FROM one_per_brand opb
+       )
+       SELECT "menuId", "brandId", "brandName", "cuisineType", "locationType", "dishCount", "isTop200"
+       FROM ranked
+       ORDER BY bucket_rn, random()
+       LIMIT $${limitIdx}`,
+      params,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("menus-random-sample error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

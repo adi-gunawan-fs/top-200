@@ -183,6 +183,17 @@ export async function fetchMenuFilterOptions() {
   return res.json();
 }
 
+export async function fetchMenusRandomSample({ limit = 500, search = "", cuisineTypeId = null, locationTypeId = null, isTop200 = null } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (search) params.set("search", search);
+  if (cuisineTypeId) params.set("cuisineTypeId", String(cuisineTypeId));
+  if (locationTypeId) params.set("locationTypeId", String(locationTypeId));
+  if (isTop200 === true || isTop200 === false) params.set("isTop200", String(isTop200));
+  const res = await fetch(`${API_BASE}/api/menus-random-sample?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch random menus: ${res.statusText}`);
+  return res.json();
+}
+
 export async function fetchMenuDishExport(menuId) {
   const res = await fetch(`${API_BASE}/api/menu-dish-export?menuId=${menuId}`);
   if (!res.ok) throw new Error(`Failed to fetch menu dish export: ${res.statusText}`);
