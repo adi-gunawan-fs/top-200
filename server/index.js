@@ -1217,7 +1217,17 @@ app.get("/api/menu-dish-export", async (req, res) => {
     const meta = menuMetaRows[0] ?? {};
 
     const { rows: dishRows } = await pool.query(
-      `WITH latest_ai AS (
+      `WITH latest_curator_cutoff AS (
+         SELECT
+           ds."menuCurationTaskId",
+           MAX(ds."createdAt") AS "latestCuratorCreatedAt"
+         FROM "dishSnapshots" ds
+         INNER JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
+         WHERE mct."menuId" = $1
+           AND ds."type" = 'CURATOR'
+         GROUP BY ds."menuCurationTaskId"
+       ),
+       latest_ai AS (
          SELECT DISTINCT ON (ds."dishId")
            ds."dishId",
            ds."menuCurationTaskId",
@@ -1239,6 +1249,19 @@ app.get("/api/menu-dish-export", async (req, res) => {
          WHERE mct."menuId" = $1
            AND ds."type" = 'AI'
          ORDER BY ds."dishId", ds."createdAt" DESC
+       ),
+       latest_ai_before_curator AS (
+         SELECT DISTINCT ON (ds."dishId")
+           ds."dishId",
+           ds."menuCurationTaskId",
+           ds."dishTypeId"
+         FROM "dishSnapshots" ds
+         INNER JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
+         INNER JOIN latest_curator_cutoff lcc ON lcc."menuCurationTaskId" = ds."menuCurationTaskId"
+         WHERE mct."menuId" = $1
+           AND ds."type" = 'AI'
+           AND ds."createdAt" < lcc."latestCuratorCreatedAt"
+         ORDER BY ds."dishId", ds."createdAt" DESC
        )
        SELECT
          d."id"                                                            AS "dishId",
@@ -1252,6 +1275,9 @@ app.get("/api/menu-dish-export", async (req, res) => {
          d."miscDescriptors",
          d."allergenDescriptors",
          dt."name"                                                         AS "dishType",
+         dt."name"                                                         AS "currentDishType",
+         dt_prev."name"                                                    AS "suggestedDishType",
+         dt_curator."name"                                                 AS "curatedDishType",
          dt."isIgnored"                                                    AS "dishTypeIsIgnored",
          ct."name"                                                         AS "courseType",
          ct."isIgnored"                                                    AS "courseTypeIsIgnored",
@@ -1269,6 +1295,20 @@ app.get("/api/menu-dish-export", async (req, res) => {
        FROM latest_ai la
        INNER JOIN "dishes" d ON d.id = la."dishId"
        LEFT JOIN "dishTypes" dt ON dt.id = la."dishTypeId"
+       LEFT JOIN latest_ai_before_curator la_prev
+         ON la_prev."dishId" = la."dishId"
+        AND la_prev."menuCurationTaskId" = la."menuCurationTaskId"
+       LEFT JOIN "dishTypes" dt_prev ON dt_prev.id = la_prev."dishTypeId"
+       LEFT JOIN LATERAL (
+         SELECT ds_curator."dishTypeId"
+         FROM "dishSnapshots" ds_curator
+         WHERE ds_curator."menuCurationTaskId" = la."menuCurationTaskId"
+           AND ds_curator."dishId" = la."dishId"
+           AND ds_curator."type" = 'CURATOR'
+         ORDER BY ds_curator."createdAt" DESC
+         LIMIT 1
+       ) curator ON true
+       LEFT JOIN "dishTypes" dt_curator ON dt_curator.id = curator."dishTypeId"
        LEFT JOIN "courseTypes" ct ON ct.id = la."courseTypeId"
        WHERE d."isFake" = false
          AND d."isDeleted" = false
@@ -1364,6 +1404,9 @@ app.get("/api/menu-dish-export", async (req, res) => {
       miscDescriptors: d.miscDescriptors ?? "",
       allergenDescriptors: d.allergenDescriptors ?? "",
       dishType: d.dishType ?? "",
+      currentDishType: d.currentDishType ?? "",
+      suggestedDishType: d.suggestedDishType ?? "",
+      curatedDishType: d.curatedDishType ?? "",
       dishTypeIsIgnored: d.dishTypeIsIgnored ?? false,
       courseType: d.courseType ?? "",
       courseTypeIsIgnored: d.courseTypeIsIgnored ?? false,
