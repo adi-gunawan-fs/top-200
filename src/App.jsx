@@ -5,6 +5,7 @@ import BrandListPage from "./components/BrandListPage";
 import LargeBrandDishPage from "./components/LargeBrandDishPage";
 import ExperimentPage from "./components/ExperimentPage";
 import MenusPage from "./components/MenusPage";
+import UserReviewDatasetPage from "./components/UserReviewDatasetPage";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { WeightsProvider } from "./contexts/WeightsContext";
@@ -12,11 +13,13 @@ import { WeightsProvider } from "./contexts/WeightsContext";
 const MODE_LARGE_BRAND = "large-brand";
 const MODE_EXPERIMENT = "experiment";
 const MODE_MENUS = "menus";
+const MODE_USER_REVIEW_DATASET = "user-review-dataset";
 const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 const ROUTES = {
   [MODE_LARGE_BRAND]: "/top-200/large-brand-list",
   [MODE_EXPERIMENT]: "/top-200/experiments",
   [MODE_MENUS]: "/menu-curator/menus",
+  [MODE_USER_REVIEW_DATASET]: "/menu-curator/user-review-dataset",
 };
 
 const SECTION_TOP_200 = "top-200";
@@ -26,6 +29,7 @@ const MODE_SECTION = {
   [MODE_LARGE_BRAND]: SECTION_TOP_200,
   [MODE_EXPERIMENT]: SECTION_TOP_200,
   [MODE_MENUS]: SECTION_MENU_CURATOR,
+  [MODE_USER_REVIEW_DATASET]: SECTION_MENU_CURATOR,
 };
 
 function getDefaultMode() {
@@ -36,6 +40,7 @@ function getModeFromPathname(pathname) {
   if (pathname === ROUTES[MODE_LARGE_BRAND]) return MODE_LARGE_BRAND;
   if (pathname === ROUTES[MODE_EXPERIMENT]) return MODE_EXPERIMENT;
   if (pathname === ROUTES[MODE_MENUS]) return MODE_MENUS;
+  if (pathname === ROUTES[MODE_USER_REVIEW_DATASET]) return MODE_USER_REVIEW_DATASET;
   return null;
 }
 
@@ -132,6 +137,7 @@ function App() {
   ].filter((option) => option.enabled);
   const menuCuratorOptions = [
     { id: MODE_MENUS, label: "Menus", enabled: true },
+    { id: MODE_USER_REVIEW_DATASET, label: "User Review Dataset", enabled: true },
   ].filter((option) => option.enabled);
 
   return (
@@ -294,6 +300,8 @@ function App() {
             />
           ) : mode === MODE_MENUS ? (
             <MenusPage />
+          ) : mode === MODE_USER_REVIEW_DATASET ? (
+            <UserReviewDatasetPage />
           ) : mode === MODE_EXPERIMENT ? (
             <ExperimentPage sessionUserId={session.user.id} />
           ) : (
