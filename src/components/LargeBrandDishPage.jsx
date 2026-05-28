@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Download, FlaskConical } from "lucide-react";
+import { Loader2, Search, ChevronLeft, ChevronRight, Download, FlaskConical } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 import { Modal } from "./ui/Modal";
@@ -951,7 +951,6 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
   if (error) {
     return (
       <section className="flex flex-col gap-4">
-        <Button onClick={onBack}><ArrowLeft className="h-3.5 w-3.5" />Back</Button>
         <EmptyState message={error} tone="danger" />
       </section>
     );
@@ -963,8 +962,7 @@ function LargeBrandDishPage({ brand, viewMode = "latest", onBack, sessionUserId 
     <>
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button onClick={onBack}><ArrowLeft className="h-3.5 w-3.5" />Back</Button>
+        <div>
           <div>
             <h2 className="text-sm font-semibold text-slate-700">{brand.brandName}</h2>
             <p className="text-[11px] text-slate-400">

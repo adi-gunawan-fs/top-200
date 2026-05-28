@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ArrowLeft, Loader2, Search, ChevronLeft, ChevronRight, Clock, GitCompare, Download } from "lucide-react";
+import { Loader2, Search, ChevronLeft, ChevronRight, Clock, GitCompare, Download } from "lucide-react";
 import { Button } from "./ui/Button";
 import { EmptyState } from "./ui/EmptyState";
 import {
@@ -216,10 +216,6 @@ function BrandListPage({ onBack, onSelectBrand }) {
   if (error) {
     return (
       <section className="flex flex-col gap-4">
-        <Button onClick={onBack}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back
-        </Button>
         <EmptyState message={error} tone="danger" />
       </section>
     );
@@ -228,13 +224,7 @@ function BrandListPage({ onBack, onSelectBrand }) {
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button onClick={onBack}>
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
-          </Button>
-          <h2 className="text-sm font-semibold text-slate-700">Large Brand List</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-slate-700">Large Brand List</h2>
         <p className="text-xs text-slate-500">{filteredBrands.length} of {brands.length} brands{searchQuery && ` (filtered)`}</p>
       </div>
 
