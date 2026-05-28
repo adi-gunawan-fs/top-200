@@ -174,9 +174,38 @@ function descriptorObjectToPlain(value, { omitImageSrc = false } = {}) {
 }
 
 function stringifyJsonCell(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value);
+  const sanitized = sanitizeJsonExportValue(value);
+  if (sanitized === undefined) return "";
+  if (typeof sanitized === "string") return sanitized;
+  return JSON.stringify(sanitized);
+}
+
+function sanitizeJsonExportValue(value) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() === "" ? undefined : value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    const next = value
+      .map((entry) => sanitizeJsonExportValue(entry))
+      .filter((entry) => entry !== undefined);
+    return next.length > 0 ? next : undefined;
+  }
+  if (typeof value === "object") {
+    const next = Object.entries(value).reduce((acc, [key, entryValue]) => {
+      const sanitizedEntry = sanitizeJsonExportValue(entryValue);
+      if (sanitizedEntry !== undefined) acc[key] = sanitizedEntry;
+      return acc;
+    }, {});
+    return Object.keys(next).length > 0 ? next : undefined;
+  }
+  return value;
+}
+
+function escapeCsvJsonValue(value) {
+  const text = stringifyJsonCell(value);
+  return text.includes(",") || text.includes('"') || text.includes("\n")
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
 }
 
 function escapeCsvValue(value) {
@@ -191,6 +220,48 @@ function escapeCsvDescriptorValue(value, { omitImageSrc = false } = {}) {
   return text.includes(",") || text.includes('"') || text.includes("\n")
     ? `"${text.replace(/"/g, '""')}"`
     : text;
+}
+
+function escapeTaskExportCell(column, value) {
+  return column === "menu_title"
+    || column === "diet_descriptors"
+    || column === "addon_descriptors"
+    || column === "misc_descriptors"
+    || column === "allergen_descriptors"
+    ? escapeCsvJsonValue(value)
+    : escapeCsvValue(value);
+}
+
+function withMenuTitleLevels(menuTitle) {
+  if (!Array.isArray(menuTitle) || menuTitle.length === 0) return [];
+  return menuTitle.map((entry, index) => ({
+    level: index + 1,
+    ...(entry ?? {}),
+    addonDescriptors: formatDescriptorTextBlock(entry?.addonDescriptors),
+    miscDescriptors: formatDescriptorTextBlock(entry?.miscDescriptors),
+  }));
+}
+
+function extractDescriptorTextValues(value) {
+  if (value === null || value === undefined) return [];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => extractDescriptorTextValues(entry));
+  }
+  if (typeof value === "object") {
+    if (typeof value.text === "string" && value.text.trim() !== "") {
+      return [value.text];
+    }
+    return Object.values(value).flatMap((entry) => extractDescriptorTextValues(entry));
+  }
+  return [String(value)];
+}
+
+function formatDescriptorTextBlock(value) {
+  return extractDescriptorTextValues(value).join("\n\n");
 }
 
 function buildAiCuratorMenuTitleCell(menuTitle) {
@@ -347,11 +418,11 @@ function buildLatestBrandCsvRows(dishes, curationLinks, brandName) {
       dish_id: dishIdCell,
       dish_name: dish.dishName ?? "",
       description: dish.dishDescription ?? "",
-      menu_title: buildLatestMenuTitleCell(dish.menuTitleChain ?? []),
+      menu_title: withMenuTitleLevels(dish.menuTitleChain ?? []),
       ingredient_free_text: dish.ingredients ?? "",
       diet_descriptors: dish.dietDescriptors ?? "",
-      addon_descriptors: dish.addonDescriptors ?? "",
-      misc_descriptors: dish.miscDescriptors ?? "",
+      addon_descriptors: formatDescriptorTextBlock(dish.addonDescriptors),
+      misc_descriptors: formatDescriptorTextBlock(dish.miscDescriptors),
       allergen_descriptors: dish.allergenDescriptors ?? "",
       dish_type: dish.dishTypeName ?? "",
       course_type: dish.courseTypeName ?? "",
@@ -454,15 +525,7 @@ export async function buildLatestBrandExportCsv({ brandId, brandName, limit, onP
 
   const csvLines = [
     LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
-    ...exportRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => (
-      column === "diet_descriptors"
-        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
-        : column === "addon_descriptors"
-        || column === "misc_descriptors"
-        || column === "allergen_descriptors"
-          ? escapeCsvDescriptorValue(row[column])
-          : escapeCsvValue(row[column])
-    )).join(",")),
+    ...exportRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeTaskExportCell(column, row[column])).join(",")),
   ];
 
   const safeBrand = String(brandName ?? "brand")
@@ -499,15 +562,7 @@ export async function buildCombinedLatestBrandsExportCsv({ brands, onProgress } 
 
   const csvLines = [
     LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
-    ...allRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => (
-      column === "diet_descriptors"
-        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
-        : column === "addon_descriptors"
-        || column === "misc_descriptors"
-        || column === "allergen_descriptors"
-          ? escapeCsvDescriptorValue(row[column])
-          : escapeCsvValue(row[column])
-    )).join(",")),
+    ...allRows.map((row) => LATEST_BRAND_EXPORT_COLUMNS.map((column) => escapeTaskExportCell(column, row[column])).join(",")),
   ];
 
   const stamp = new Date().toISOString().slice(0, 10);
@@ -532,30 +587,27 @@ const AI_CURATOR_EXPORT_COLUMNS = [
   "addon_descriptors",
   "misc_descriptors",
   "allergen_descriptors",
-  "dish_type_ai",
-  "dish_type_ai_new",
-  "dish_type_curator",
-  "course_type_ai",
-  "course_type_ai_new",
-  "course_type_curator",
-  "diet_ai",
-  "diet_ai_new",
-  "diet_curator",
-  "allergen_ai",
-  "allergen_ai_new",
-  "allergen_curator",
-  "main_ingredient_ai",
-  "main_ingredient_ai_new",
-  "main_ingredient_curator",
-  "choice_ingredient_ai",
-  "choice_ingredient_ai_new",
-  "choice_ingredient_curator",
-  "additional_ingredient_ai",
-  "additional_ingredient_ai_new",
-  "additional_ingredient_curator",
-  "ai_created_at",
-  "ai_created_at_new",
-  "curator_created_at",
+  "suggested_dish_type",
+  "new_suggested_dish_type",
+  "curated_dish_type",
+  "suggested_course_type",
+  "new_suggested_course_type",
+  "curated_course_type",
+  "suggested_diet",
+  "new_suggested_diet",
+  "curated_diet",
+  "suggested_allergen",
+  "new_suggested_allergen",
+  "curated_allergen",
+  "suggested_main_ingredient",
+  "new_suggested_main_ingredient",
+  "curated_main_ingredient",
+  "suggested_additional_ingredient",
+  "new_suggested_additional_ingredient",
+  "curated_additional_ingredient",
+  "suggested_choice_ingredient",
+  "new_suggested_choice_ingredient",
+  "curated_choice_ingredient",
 ];
 
 const TIER_ONE_EXPORT_COLUMNS = [
@@ -583,12 +635,10 @@ const TIER_ONE_EXPORT_COLUMNS = [
   "curated_allergen",
   "suggested_main_ingredient",
   "curated_main_ingredient",
-  "suggested_choice_ingredient",
-  "curated_choice_ingredient",
   "suggested_additional_ingredient",
   "curated_additional_ingredient",
-  "ai_created_at",
-  "curator_created_at",
+  "suggested_choice_ingredient",
+  "curated_choice_ingredient",
 ];
 
 function normalizeAiCuratorExportRows(rows) {
@@ -597,38 +647,35 @@ function normalizeAiCuratorExportRows(rows) {
     cuisine_type: row.cuisineType ?? "",
     location_type: row.locationType ?? "",
     dish_id: row.dishId ?? "",
-    menu_title: buildAiCuratorMenuTitleCell(row.menuTitle),
+    menu_title: withMenuTitleLevels(row.menuTitle ?? []),
     dish_name: row.dishName ?? "",
     dish_description: row.dishDescription ?? "",
     ingredient_free_text: row.ingredientFreeText ?? "",
     diet_descriptors: row.dietDescriptors ?? "",
-    addon_descriptors: row.addonDescriptors ?? "",
-    misc_descriptors: row.miscDescriptors ?? "",
+    addon_descriptors: formatDescriptorTextBlock(row.addonDescriptors),
+    misc_descriptors: formatDescriptorTextBlock(row.miscDescriptors),
     allergen_descriptors: row.allergenDescriptors ?? "",
-    dish_type_ai: row.dishTypeAI ?? "",
-    dish_type_ai_new: row.dishTypeAINew ?? "",
-    dish_type_curator: row.dishTypeCurator ?? "",
-    course_type_ai: row.courseTypeAI ?? "",
-    course_type_ai_new: row.courseTypeAINew ?? "",
-    course_type_curator: row.courseTypeCurator ?? "",
-    diet_ai: row.dietAI ?? [],
-    diet_ai_new: row.dietAINew ?? [],
-    diet_curator: row.dietCurator ?? [],
-    allergen_ai: row.allergenAI ?? [],
-    allergen_ai_new: row.allergenAINew ?? [],
-    allergen_curator: row.allergenCurator ?? [],
-    main_ingredient_ai: row.mainIngredientAI ?? [],
-    main_ingredient_ai_new: row.mainIngredientAINew ?? [],
-    main_ingredient_curator: row.mainIngredientCurator ?? [],
-    choice_ingredient_ai: row.choiceIngredientAI ?? [],
-    choice_ingredient_ai_new: row.choiceIngredientAINew ?? [],
-    choice_ingredient_curator: row.choiceIngredientCurator ?? [],
-    additional_ingredient_ai: row.additionalIngredientAI ?? [],
-    additional_ingredient_ai_new: row.additionalIngredientAINew ?? [],
-    additional_ingredient_curator: row.additionalIngredientCurator ?? [],
-    ai_created_at: row.aiCreatedAt ?? "",
-    ai_created_at_new: row.aiCreatedAtNew ?? "",
-    curator_created_at: row.curatorCreatedAt ?? "",
+    suggested_dish_type: row.dishTypeAI ?? "",
+    new_suggested_dish_type: row.dishTypeAINew ?? "",
+    curated_dish_type: row.dishTypeCurator ?? "",
+    suggested_course_type: row.courseTypeAI ?? "",
+    new_suggested_course_type: row.courseTypeAINew ?? "",
+    curated_course_type: row.courseTypeCurator ?? "",
+    suggested_diet: row.dietAI ?? [],
+    new_suggested_diet: row.dietAINew ?? [],
+    curated_diet: row.dietCurator ?? [],
+    suggested_allergen: row.allergenAI ?? [],
+    new_suggested_allergen: row.allergenAINew ?? [],
+    curated_allergen: row.allergenCurator ?? [],
+    suggested_main_ingredient: row.mainIngredientAI ?? [],
+    new_suggested_main_ingredient: row.mainIngredientAINew ?? [],
+    curated_main_ingredient: row.mainIngredientCurator ?? [],
+    suggested_choice_ingredient: row.choiceIngredientAI ?? [],
+    new_suggested_choice_ingredient: row.choiceIngredientAINew ?? [],
+    curated_choice_ingredient: row.choiceIngredientCurator ?? [],
+    suggested_additional_ingredient: row.additionalIngredientAI ?? [],
+    new_suggested_additional_ingredient: row.additionalIngredientAINew ?? [],
+    curated_additional_ingredient: row.additionalIngredientCurator ?? [],
   }));
 }
 
@@ -638,13 +685,13 @@ function normalizeTierOneExportRows(rows) {
     cuisine_type: row.cuisineType ?? "",
     location_type: row.locationType ?? "",
     dish_id: row.dishId ?? "",
-    menu_title: buildAiCuratorMenuTitleCell(row.menuTitle),
+    menu_title: withMenuTitleLevels(row.menuTitle ?? []),
     dish_name: row.dishName ?? "",
     dish_description: row.dishDescription ?? "",
     ingredient_free_text: row.ingredientFreeText ?? "",
     diet_descriptors: row.dietDescriptors ?? "",
-    addon_descriptors: row.addonDescriptors ?? "",
-    misc_descriptors: row.miscDescriptors ?? "",
+    addon_descriptors: formatDescriptorTextBlock(row.addonDescriptors),
+    misc_descriptors: formatDescriptorTextBlock(row.miscDescriptors),
     allergen_descriptors: row.allergenDescriptors ?? "",
     suggested_tier: row.suggestedTier ?? 1,
     curated_tier: row.curatedTier ?? "",
@@ -662,8 +709,6 @@ function normalizeTierOneExportRows(rows) {
     curated_choice_ingredient: row.choiceIngredientCurator ?? [],
     suggested_additional_ingredient: row.additionalIngredientAI ?? [],
     curated_additional_ingredient: row.additionalIngredientCurator ?? [],
-    ai_created_at: row.aiCreatedAt ?? "",
-    curator_created_at: row.curatorCreatedAt ?? "",
   }));
 }
 
@@ -687,15 +732,7 @@ export async function buildCombinedAiCuratorTaskExportCsv({ brands, limitPerTask
 
   const csvLines = [
     AI_CURATOR_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
-    ...allRows.map((row) => AI_CURATOR_EXPORT_COLUMNS.map((column) => (
-      column === "diet_descriptors"
-        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
-        : column === "addon_descriptors"
-        || column === "misc_descriptors"
-        || column === "allergen_descriptors"
-          ? escapeCsvDescriptorValue(row[column])
-          : escapeCsvValue(row[column])
-    )).join(",")),
+    ...allRows.map((row) => AI_CURATOR_EXPORT_COLUMNS.map((column) => escapeTaskExportCell(column, row[column])).join(",")),
   ];
 
   const stamp = new Date().toISOString().slice(0, 10);
@@ -728,15 +765,7 @@ export async function buildCombinedTierOneTaskExportCsv({ brands, limitPerTask, 
 
   const csvLines = [
     TIER_ONE_EXPORT_COLUMNS.map((column) => escapeCsvValue(column)).join(","),
-    ...allRows.map((row) => TIER_ONE_EXPORT_COLUMNS.map((column) => (
-      column === "diet_descriptors"
-        ? escapeCsvDescriptorValue(row[column], { omitImageSrc: true })
-        : column === "addon_descriptors"
-        || column === "misc_descriptors"
-        || column === "allergen_descriptors"
-          ? escapeCsvDescriptorValue(row[column])
-          : escapeCsvValue(row[column])
-    )).join(",")),
+    ...allRows.map((row) => TIER_ONE_EXPORT_COLUMNS.map((column) => escapeTaskExportCell(column, row[column])).join(",")),
   ];
 
   const stamp = new Date().toISOString().slice(0, 10);

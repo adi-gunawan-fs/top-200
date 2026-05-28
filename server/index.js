@@ -609,7 +609,7 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
                       SELECT MAX("createdAt")
                       FROM "dishSnapshots"
                       WHERE "menuCurationTaskId" = $1
-                        AND "type" = 'CURATOR'
+                        AND "type" = 'QC'
                   )
             )
           ORDER BY ds."dishId", ds."createdAt" DESC
@@ -647,7 +647,7 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
               ds."additionalIngredientIds"
           FROM "dishSnapshots" ds
           WHERE ds."menuCurationTaskId" = $1
-            AND ds."type" = 'CURATOR'
+            AND ds."type" = 'QC'
           ORDER BY ds."dishId", ds."createdAt" DESC
       )
       SELECT
@@ -687,9 +687,36 @@ app.get("/api/menu-curation-task-ai-curator-export", async (req, res) => {
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."choiceIngredientIds"))        AS "choiceIngredientAI",
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(la."latestAiChoiceIngredientIds")) AS "choiceIngredientAINew",
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."choiceIngredientIds"))        AS "choiceIngredientCurator",
-          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."additionalIngredientIds"))    AS "additionalIngredientAI",
-          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(la."latestAiAdditionalIngredientIds")) AS "additionalIngredientAINew",
-          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."additionalIngredientIds"))    AS "additionalIngredientCurator",
+          (SELECT array_agg(i.name ORDER BY i.name)
+             FROM ingredients i
+            WHERE i.id = ANY(b."additionalIngredientIds")
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "dishesAdditionalIngredients" dai
+                WHERE dai."dishId" = b."dishId"
+                  AND dai."ingredientId" = i.id
+                  AND dai."type" = 'PROBABLE'
+              ))                                                                                                   AS "additionalIngredientAI",
+          (SELECT array_agg(i.name ORDER BY i.name)
+             FROM ingredients i
+            WHERE i.id = ANY(la."latestAiAdditionalIngredientIds")
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "dishesAdditionalIngredients" dai
+                WHERE dai."dishId" = la."dishId"
+                  AND dai."ingredientId" = i.id
+                  AND dai."type" = 'PROBABLE'
+              ))                                                                                                   AS "additionalIngredientAINew",
+          (SELECT array_agg(i.name ORDER BY i.name)
+             FROM ingredients i
+            WHERE i.id = ANY(c."additionalIngredientIds")
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "dishesAdditionalIngredients" dai
+                WHERE dai."dishId" = c."dishId"
+                  AND dai."ingredientId" = i.id
+                  AND dai."type" = 'PROBABLE'
+              ))                                                                                                   AS "additionalIngredientCurator",
           b."createdAt"                                                                            AS "aiCreatedAt",
           la."latestAiCreatedAt"                                                                   AS "aiCreatedAtNew",
           c."curatorCreatedAt"
@@ -783,7 +810,7 @@ app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
               ds."mainIngredientIds",
               ds."choiceIngredientIds",
               ds."additionalIngredientIds",
-              ds."tier"                    AS "suggestedTier",
+              d."tier"                     AS "suggestedTier",
               d."description"              AS "dishDescription",
               d."ingredients",
               d."dietDescriptors",
@@ -813,7 +840,7 @@ app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
                       SELECT MAX("createdAt")
                       FROM "dishSnapshots"
                       WHERE "menuCurationTaskId" = $1
-                        AND "type" = 'CURATOR'
+                        AND "type" = 'QC'
                   )
             )
           ORDER BY ds."dishId", ds."createdAt" DESC
@@ -832,7 +859,7 @@ app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
               ds."tier"                    AS "curatedTier"
           FROM "dishSnapshots" ds
           WHERE ds."menuCurationTaskId" = $1
-            AND ds."type" = 'CURATOR'
+            AND ds."type" = 'QC'
           ORDER BY ds."dishId", ds."createdAt" DESC
       )
       SELECT
@@ -868,8 +895,26 @@ app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."mainIngredientIds"))          AS "mainIngredientCurator",
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."choiceIngredientIds"))        AS "choiceIngredientAI",
           (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."choiceIngredientIds"))        AS "choiceIngredientCurator",
-          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(b."additionalIngredientIds"))    AS "additionalIngredientAI",
-          (SELECT array_agg(name ORDER BY name) FROM ingredients WHERE id = ANY(c."additionalIngredientIds"))    AS "additionalIngredientCurator",
+          (SELECT array_agg(i.name ORDER BY i.name)
+             FROM ingredients i
+            WHERE i.id = ANY(b."additionalIngredientIds")
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "dishesAdditionalIngredients" dai
+                WHERE dai."dishId" = b."dishId"
+                  AND dai."ingredientId" = i.id
+                  AND dai."type" = 'PROBABLE'
+              ))                                                                                                   AS "additionalIngredientAI",
+          (SELECT array_agg(i.name ORDER BY i.name)
+             FROM ingredients i
+            WHERE i.id = ANY(c."additionalIngredientIds")
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "dishesAdditionalIngredients" dai
+                WHERE dai."dishId" = c."dishId"
+                  AND dai."ingredientId" = i.id
+                  AND dai."type" = 'PROBABLE'
+              ))                                                                                                   AS "additionalIngredientCurator",
           b."createdAt"                                                                            AS "aiCreatedAt",
           c."curatorCreatedAt"
       FROM ai_base b

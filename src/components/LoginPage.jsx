@@ -30,8 +30,8 @@ function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
           <div className="mb-6">
-            <h1 className="text-base font-semibold text-slate-900">Top 200 Brands</h1>
-            <p className="mt-1 text-xs text-slate-500">Sign in to access the menu review tool.</p>
+            <h1 className="text-base font-semibold text-slate-900">Report - FoodStyles</h1>
+            <p className="mt-1 text-xs text-slate-500">Sign in to access the Top 200 reporting workspace.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
