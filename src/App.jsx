@@ -1,20 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, KeyRound, LogOut, Settings } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut } from "lucide-react";
 import LoginPage from "./components/LoginPage";
 import BrandListPage from "./components/BrandListPage";
 import LargeBrandDishPage from "./components/LargeBrandDishPage";
 import ExperimentPage from "./components/ExperimentPage";
+import MenusPage from "./components/MenusPage";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
-import { SettingsModal } from "./components/ui/SettingsModal";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { WeightsProvider } from "./contexts/WeightsContext";
 
 const MODE_LARGE_BRAND = "large-brand";
 const MODE_EXPERIMENT = "experiment";
+const MODE_MENUS = "menus";
 const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 const ROUTES = {
   [MODE_LARGE_BRAND]: "/top-200/large-brand-list",
   [MODE_EXPERIMENT]: "/top-200/experiments",
+  [MODE_MENUS]: "/menu-curator/menus",
+};
+
+const SECTION_TOP_200 = "top-200";
+const SECTION_MENU_CURATOR = "menu-curator";
+
+const MODE_SECTION = {
+  [MODE_LARGE_BRAND]: SECTION_TOP_200,
+  [MODE_EXPERIMENT]: SECTION_TOP_200,
+  [MODE_MENUS]: SECTION_MENU_CURATOR,
 };
 
 function getDefaultMode() {
@@ -24,17 +35,19 @@ function getDefaultMode() {
 function getModeFromPathname(pathname) {
   if (pathname === ROUTES[MODE_LARGE_BRAND]) return MODE_LARGE_BRAND;
   if (pathname === ROUTES[MODE_EXPERIMENT]) return MODE_EXPERIMENT;
+  if (pathname === ROUTES[MODE_MENUS]) return MODE_MENUS;
   return null;
 }
 
 function App() {
   const [session, setSession] = useState(undefined);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [topMenuOpen, setTopMenuOpen] = useState(false);
+  const [menuCuratorMenuOpen, setMenuCuratorMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const topMenuRef = useRef(null);
+  const menuCuratorMenuRef = useRef(null);
 
   const [mode, setMode] = useState(() => getModeFromPathname(window.location.pathname) ?? getDefaultMode());
   const [selectedLargeBrand, setSelectedLargeBrand] = useState(null);
@@ -49,6 +62,9 @@ function App() {
     const handlePointerDown = (event) => {
       if (topMenuRef.current && !topMenuRef.current.contains(event.target)) {
         setTopMenuOpen(false);
+      }
+      if (menuCuratorMenuRef.current && !menuCuratorMenuRef.current.contains(event.target)) {
+        setMenuCuratorMenuOpen(false);
       }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setUserMenuOpen(false);
@@ -109,9 +125,13 @@ function App() {
   if (!session) return <LoginPage />;
 
   const showBrandList = IS_LOCAL_ENV && mode === MODE_LARGE_BRAND;
+  const activeSection = MODE_SECTION[mode] ?? SECTION_TOP_200;
   const workspaceOptions = [
     { id: MODE_LARGE_BRAND, label: "Large Brand", enabled: IS_LOCAL_ENV },
     { id: MODE_EXPERIMENT, label: "Experiment", enabled: true },
+  ].filter((option) => option.enabled);
+  const menuCuratorOptions = [
+    { id: MODE_MENUS, label: "Menus", enabled: true },
   ].filter((option) => option.enabled);
 
   return (
@@ -128,7 +148,11 @@ function App() {
                     <button
                       type="button"
                       onClick={() => setTopMenuOpen((v) => !v)}
-                      className={`border-b-2 px-3 py-4 text-sm transition-colors ${topMenuOpen ? "border-blue-500 text-blue-600" : "border-blue-500 text-blue-600"}`}
+                      className={`border-b-2 px-3 py-4 text-sm transition-colors ${
+                        activeSection === SECTION_TOP_200
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-slate-600 hover:text-slate-900"
+                      }`}
                     >
                       Top 200
                     </button>
@@ -144,6 +168,45 @@ function App() {
                               onClick={() => {
                                 handleSwitchMode(option.id);
                                 setTopMenuOpen(false);
+                              }}
+                              className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
+                                optionActive
+                                  ? "text-blue-600 hover:bg-blue-50"
+                                  : "text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="relative" ref={menuCuratorMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setMenuCuratorMenuOpen((v) => !v)}
+                      className={`border-b-2 px-3 py-4 text-sm transition-colors ${
+                        activeSection === SECTION_MENU_CURATOR
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Menu Curator
+                    </button>
+
+                    {menuCuratorMenuOpen ? (
+                      <div className="absolute left-0 top-full z-[260] mt-1 w-44 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-lg">
+                        {menuCuratorOptions.map((option) => {
+                          const optionActive = option.id === mode;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() => {
+                                handleSwitchMode(option.id);
+                                setMenuCuratorMenuOpen(false);
                               }}
                               className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
                                 optionActive
@@ -187,17 +250,6 @@ function App() {
                         type="button"
                         onClick={() => {
                           setUserMenuOpen(false);
-                          setSettingsOpen(true);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
-                      >
-                        <Settings className="h-3.5 w-3.5 text-slate-400" />
-                        Settings
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUserMenuOpen(false);
                           setChangePasswordOpen(true);
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
@@ -226,7 +278,6 @@ function App() {
         </header>
 
         {changePasswordOpen && <ChangePasswordModal onClose={() => setChangePasswordOpen(false)} />}
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
         <div className="flex flex-col gap-4 p-4">
           {showBrandList && selectedLargeBrand ? (
@@ -241,6 +292,8 @@ function App() {
               onBack={() => setSelectedLargeBrand(null)}
               onSelectBrand={(brand, viewMode) => setSelectedLargeBrand({ ...brand, viewMode })}
             />
+          ) : mode === MODE_MENUS ? (
+            <MenusPage />
           ) : mode === MODE_EXPERIMENT ? (
             <ExperimentPage sessionUserId={session.user.id} />
           ) : (

@@ -159,6 +159,30 @@ export async function fetchBrandSnapshotRowsAsOf(brandId, asOf) {
   return rows;
 }
 
+export async function fetchMenus({
+  page = 0,
+  pageSize = 50,
+  search = "",
+  cuisineTypeId = null,
+  locationTypeId = null,
+  isTop200 = null,
+} = {}) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search) params.set("search", search);
+  if (cuisineTypeId) params.set("cuisineTypeId", String(cuisineTypeId));
+  if (locationTypeId) params.set("locationTypeId", String(locationTypeId));
+  if (isTop200 === true || isTop200 === false) params.set("isTop200", String(isTop200));
+  const res = await fetch(`${API_BASE}/api/menus?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch menus: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchMenuFilterOptions() {
+  const res = await fetch(`${API_BASE}/api/menu-filter-options`);
+  if (!res.ok) throw new Error(`Failed to fetch menu filter options: ${res.statusText}`);
+  return res.json();
+}
+
 export async function fetchMenuCurationTaskAiCuratorExportRows(taskId, limitPerTask) {
   const params = new URLSearchParams({ taskId: String(taskId) });
   if (Number.isFinite(limitPerTask) && limitPerTask > 0) {

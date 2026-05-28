@@ -979,6 +979,129 @@ app.get("/api/menu-curation-task-tier-one-export", async (req, res) => {
   }
 });
 
+// GET /api/menu-filter-options
+// Read-only list of cuisine & location types referenced by INCLUDED menus.
+app.get("/api/menu-filter-options", async (_req, res) => {
+  try {
+    const [cuisineRes, locationRes] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT ct.id, ct.name
+         FROM menus m
+         INNER JOIN brands b ON b.id = m."brandId"
+         INNER JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         WHERE m."status" = 'INCLUDED'
+           AND m."isDeleted" = false
+           AND m."isFake" = false
+           AND b."status" = 'INCLUDED'
+         ORDER BY ct.name ASC`,
+      ),
+      pool.query(
+        `SELECT DISTINCT lt.id, lt.name
+         FROM menus m
+         INNER JOIN brands b ON b.id = m."brandId"
+         INNER JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
+         WHERE m."status" = 'INCLUDED'
+           AND m."isDeleted" = false
+           AND m."isFake" = false
+           AND b."status" = 'INCLUDED'
+         ORDER BY lt.name ASC`,
+      ),
+    ]);
+
+    res.json({ cuisineTypes: cuisineRes.rows, locationTypes: locationRes.rows });
+  } catch (err) {
+    console.error("menu-filter-options error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/menus?page=0&pageSize=50&search=
+// Read-only paginated list of INCLUDED menus (with INCLUDED brand), excluding deleted/fake.
+app.get("/api/menus", async (req, res) => {
+  const page = Math.max(0, parseInt(req.query.page ?? "0", 10) || 0);
+  const rawPageSize = parseInt(req.query.pageSize ?? "50", 10) || 50;
+  const pageSize = Math.min(500, Math.max(1, rawPageSize));
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const cuisineTypeId = parseInt(req.query.cuisineTypeId, 10);
+  const locationTypeId = parseInt(req.query.locationTypeId, 10);
+  const rawTop200 = typeof req.query.isTop200 === "string" ? req.query.isTop200.toLowerCase() : "";
+  const isTop200Filter = rawTop200 === "true" ? true : rawTop200 === "false" ? false : null;
+
+  const params = [];
+  const where = [
+    `m."status" = 'INCLUDED'`,
+    `m."isDeleted" = false`,
+    `m."isFake" = false`,
+    `b."status" = 'INCLUDED'`,
+  ];
+
+  if (search) {
+    params.push(`%${search}%`);
+    where.push(`b."name" ILIKE $${params.length}`);
+  }
+
+  if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
+    params.push(cuisineTypeId);
+    where.push(`m."cuisineTypeId" = $${params.length}`);
+  }
+
+  if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
+    params.push(locationTypeId);
+    where.push(`b."mainLocationTypeId" = $${params.length}`);
+  }
+
+  if (isTop200Filter !== null) {
+    params.push(isTop200Filter);
+    where.push(`b."isTop200" = $${params.length}`);
+  }
+
+  const whereSql = where.join(" AND ");
+
+  try {
+    const countParams = params.slice();
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM menus m
+       INNER JOIN brands b ON b.id = m."brandId"
+       WHERE ${whereSql}`,
+      countParams,
+    );
+    const total = countRows[0]?.total ?? 0;
+
+    const offset = page * pageSize;
+    params.push(pageSize);
+    const limitIdx = params.length;
+    params.push(offset);
+    const offsetIdx = params.length;
+
+    const { rows } = await pool.query(
+      `SELECT
+         m.id                  AS "menuId",
+         m."brandId"           AS "brandId",
+         b.name                AS "brandName",
+         m."cuisineTypeId"     AS "cuisineTypeId",
+         ct.name               AS "cuisineType",
+         b."mainLocationTypeId" AS "mainLocationTypeId",
+         lt.name               AS "locationType",
+         m."dishCount"         AS "dishCount",
+         b."isTop200"          AS "isTop200"
+       FROM menus m
+       INNER JOIN brands b ON b.id = m."brandId"
+       LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+       LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
+       WHERE ${whereSql}
+       ORDER BY b.name ASC, m.id ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params,
+    );
+
+    res.json({ rows, page, pageSize, total });
+  } catch (err) {
+    console.error("menus error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });
