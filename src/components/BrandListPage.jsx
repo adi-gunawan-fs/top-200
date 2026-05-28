@@ -7,6 +7,7 @@ import {
   buildCombinedLatestBrandsExportCsv,
   buildCombinedTierOneTaskExportCsv,
 } from "../lib/dbFetch";
+import { fetchBrandsList } from "../lib/api";
 import { downloadExportFile } from "../utils/exportComparison";
 
 const PAGE_SIZE = 20;
@@ -47,13 +48,6 @@ function ModePickerModal({ brand, onPick, onClose }) {
       </div>
     </div>
   );
-}
-
-async function fetchBrandsList() {
-  const response = await fetch("http://localhost:3000/api/brands-list");
-  if (!response.ok) throw new Error(`Failed to fetch brands: ${response.statusText}`);
-  const data = await response.json();
-  return data.rows || [];
 }
 
 function BrandListPage({ onBack, onSelectBrand }) {
