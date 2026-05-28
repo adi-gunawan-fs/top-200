@@ -1,6 +1,79 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import { fetchMenus, fetchMenuFilterOptions } from "../lib/api";
+import { Loader2, Search, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { fetchMenus, fetchMenuFilterOptions, fetchMenuDishExport } from "../lib/api";
+import { escapeCsvValue } from "../lib/csvHelpers";
+
+const EXPORT_COLUMNS = [
+  "brand_name",
+  "is_top_200",
+  "cuisine_type",
+  "location_type",
+  "dish_id",
+  "menu_title",
+  "name",
+  "description",
+  "ingredients_free_text",
+  "diet_descriptors",
+  "addon_descriptors",
+  "misc_descriptors",
+  "allergen_descriptors",
+  "dish_type",
+  "is_ignored_dish_type",
+  "course_type",
+  "is_ignored_course_type",
+  "diets",
+  "allergens",
+  "main_ingredients",
+  "choice_ingredients",
+  "additional_ingredients",
+  "tier",
+  "dish_type_certainty",
+  "course_type_certainty",
+  "diets_certainty",
+  "allergens_certainty",
+  "ingredients_certainty",
+];
+
+function toJsonCell(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function dishToCsvRow(dish, meta) {
+  return {
+    brand_name: meta.brandName ?? "",
+    is_top_200: meta.isTop200 ? "true" : "false",
+    cuisine_type: meta.cuisineType ?? "",
+    location_type: meta.locationType ?? "",
+    dish_id: dish.menuCurationTaskId
+      ? `=HYPERLINK("https://menu-curator.foodstyles.com/menu-curation-tasks/${dish.menuCurationTaskId}?dishIds%5B0%5D=${dish.dishId}&shouldScrollToDish=true","${dish.dishId}")`
+      : dish.dishId,
+    menu_title: JSON.stringify(dish.menuTitle ?? []),
+    name: dish.name,
+    description: dish.description,
+    ingredients_free_text: toJsonCell(dish.ingredients),
+    diet_descriptors: toJsonCell(dish.dietDescriptors),
+    addon_descriptors: toJsonCell(dish.addonDescriptors),
+    misc_descriptors: toJsonCell(dish.miscDescriptors),
+    allergen_descriptors: toJsonCell(dish.allergenDescriptors),
+    dish_type: dish.dishType,
+    is_ignored_dish_type: dish.dishTypeIsIgnored ? "true" : "false",
+    course_type: dish.courseType,
+    is_ignored_course_type: dish.courseTypeIsIgnored ? "true" : "false",
+    diets: dish.diets,
+    allergens: dish.allergens,
+    main_ingredients: dish.mainIngredients,
+    choice_ingredients: dish.choiceIngredients,
+    additional_ingredients: dish.additionalIngredients,
+    tier: dish.tier ?? "",
+    dish_type_certainty: dish.dishTypeCertainty ?? "",
+    course_type_certainty: dish.courseTypeCertainty ?? "",
+    diets_certainty: dish.dietsCertainty ?? "",
+    allergens_certainty: dish.allergensCertainty ?? "",
+    ingredients_certainty: dish.ingredientsCertainty ?? "",
+  };
+}
 
 const PAGE_SIZE = 50;
 
@@ -17,6 +90,40 @@ function MenusPage() {
   const [locationOptions, setLocationOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [exportingMenuId, setExportingMenuId] = useState(null);
+
+  const handleExport = async (menuId, brandName) => {
+    setExportingMenuId(menuId);
+    try {
+      const data = await fetchMenuDishExport(menuId);
+      const meta = {
+        brandName: data.brandName ?? brandName ?? "",
+        isTop200: data.isTop200 ?? false,
+        cuisineType: data.cuisineType ?? "",
+        locationType: data.locationType ?? "",
+      };
+      const rows = (data.dishes ?? []).map((d) => dishToCsvRow(d, meta));
+      const csvLines = [
+        EXPORT_COLUMNS.map((c) => escapeCsvValue(c)).join(","),
+        ...rows.map((row) => EXPORT_COLUMNS.map((c) => escapeCsvValue(row[c])).join(",")),
+      ];
+      const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeBrand = String(brandName ?? "menu").trim().replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "") || "menu";
+      a.href = url;
+      a.download = `menu_${menuId}_${safeBrand}_dishes.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setExportingMenuId(null);
+    }
+  };
 
   useEffect(() => {
     fetchMenuFilterOptions()
@@ -133,24 +240,25 @@ function MenusPage() {
               <th className="px-3 py-2.5">Location Type</th>
               <th className="px-3 py-2.5">Dish Count</th>
               <th className="px-3 py-2.5">Top 200</th>
+              <th className="px-3 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center">
+                <td colSpan={7} className="px-3 py-6 text-center">
                   <Loader2 className="mx-auto h-4 w-4 animate-spin text-slate-400" />
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-rose-600">
+                <td colSpan={7} className="px-3 py-6 text-center text-rose-600">
                   {error}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
                   No menus found.
                 </td>
               </tr>
@@ -170,6 +278,21 @@ function MenusPage() {
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleExport(row.menuId, row.brandName)}
+                      disabled={exportingMenuId === row.menuId}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 enabled:hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      {exportingMenuId === row.menuId ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Download className="h-3 w-3" />
+                      )}
+                      Export
+                    </button>
                   </td>
                 </tr>
               ))

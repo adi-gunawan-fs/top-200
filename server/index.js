@@ -1102,6 +1102,208 @@ app.get("/api/menus", async (req, res) => {
   }
 });
 
+// GET /api/menu-dish-export?menuId=X
+// Read-only export of all dishes for a menu (via its menuCurationTask),
+// with hierarchical menuTitles built from parentId chain.
+app.get("/api/menu-dish-export", async (req, res) => {
+  const menuId = parseInt(req.query.menuId, 10);
+  if (!menuId) return res.status(400).json({ error: "menuId required" });
+
+  try {
+    const { rows: menuMetaRows } = await pool.query(
+      `SELECT
+         b."name"  AS "brandName",
+         b."isTop200" AS "isTop200",
+         ct."name" AS "cuisineType",
+         lt."name" AS "locationType"
+       FROM menus m
+       INNER JOIN brands b ON b.id = m."brandId"
+       LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+       LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
+       WHERE m.id = $1
+       LIMIT 1`,
+      [menuId],
+    );
+    const meta = menuMetaRows[0] ?? {};
+
+    const { rows: dishRows } = await pool.query(
+      `WITH latest_ai AS (
+         SELECT DISTINCT ON (ds."dishId")
+           ds."dishId",
+           ds."menuCurationTaskId",
+           ds."dishTypeId",
+           ds."courseTypeId",
+           ds."dietIds",
+           ds."allergenIds",
+           ds."mainIngredientIds",
+           ds."choiceIngredientIds",
+           ds."additionalIngredientIds",
+           ds."tier",
+           ds."dishTypeCertainty",
+           ds."courseTypeCertainty",
+           ds."dietsCertainty",
+           ds."allergensCertainty",
+           ds."ingredientsCertainty"
+         FROM "dishSnapshots" ds
+         INNER JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
+         WHERE mct."menuId" = $1
+           AND ds."type" = 'AI'
+         ORDER BY ds."dishId", ds."createdAt" DESC
+       )
+       SELECT
+         d."id"                                                            AS "dishId",
+         la."menuCurationTaskId",
+         d."menuTitleId",
+         d."name",
+         d."description",
+         d."ingredients",
+         d."dietDescriptors",
+         d."addonDescriptors",
+         d."miscDescriptors",
+         d."allergenDescriptors",
+         dt."name"                                                         AS "dishType",
+         dt."isIgnored"                                                    AS "dishTypeIsIgnored",
+         ct."name"                                                         AS "courseType",
+         ct."isIgnored"                                                    AS "courseTypeIsIgnored",
+         la."tier",
+         la."dishTypeCertainty",
+         la."courseTypeCertainty",
+         la."dietsCertainty",
+         la."allergensCertainty",
+         la."ingredientsCertainty",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la."dietIds"))                AS "diets",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM allergens   WHERE id = ANY(la."allergenIds"))            AS "allergens",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."mainIngredientIds"))      AS "mainIngredients",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."choiceIngredientIds"))    AS "choiceIngredients",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."additionalIngredientIds")) AS "additionalIngredients"
+       FROM latest_ai la
+       INNER JOIN "dishes" d ON d.id = la."dishId"
+       LEFT JOIN "dishTypes" dt ON dt.id = la."dishTypeId"
+       LEFT JOIN "courseTypes" ct ON ct.id = la."courseTypeId"
+       WHERE d."isFake" = false
+         AND d."isDeleted" = false
+         AND d."isEnabled" = true
+       ORDER BY d."id"`,
+      [menuId],
+    );
+
+    const menuTitleIds = [...new Set(dishRows.map((r) => r.menuTitleId).filter((id) => id !== null && id !== undefined))];
+
+    let titleHierarchies = {};
+    if (menuTitleIds.length > 0) {
+      const { rows: hierarchyRows } = await pool.query(
+        `WITH RECURSIVE menu_hierarchy AS (
+           SELECT
+             root."id" AS "rootId",
+             mt."id",
+             mt."parentId",
+             mt."title",
+             mt."description",
+             mt."miscDescriptors",
+             mt."addonDescriptors",
+             mt."dietDescriptors",
+             mt."allergenDescriptors",
+             0 AS lvl
+           FROM "menuTitles" root
+           INNER JOIN "menuTitles" mt ON mt."id" = root."id"
+           WHERE root."id" = ANY($1)
+
+           UNION ALL
+
+           SELECT
+             h."rootId",
+             p."id",
+             p."parentId",
+             p."title",
+             p."description",
+             p."miscDescriptors",
+             p."addonDescriptors",
+             p."dietDescriptors",
+             p."allergenDescriptors",
+             h.lvl + 1
+           FROM "menuTitles" p
+           INNER JOIN menu_hierarchy h ON p."id" = h."parentId"
+           WHERE h."id" <> h."parentId"
+         )
+         SELECT
+           "rootId",
+           json_agg(
+             json_build_object(
+               'title', "title",
+               'description', "description",
+               'miscDescriptors', "miscDescriptors",
+               'addonDescriptors', "addonDescriptors",
+               'dietDescriptors', "dietDescriptors",
+               'allergenDescriptors', "allergenDescriptors"
+             )
+             ORDER BY lvl DESC
+           ) AS "chain"
+         FROM menu_hierarchy
+         GROUP BY "rootId"`,
+        [menuTitleIds],
+      );
+
+      const isEmpty = (v) =>
+        v === null ||
+        v === undefined ||
+        (typeof v === "string" && v.trim() === "") ||
+        (Array.isArray(v) && v.length === 0) ||
+        (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+
+      for (const row of hierarchyRows) {
+        const chain = (row.chain ?? []).map((node, idx) => {
+          const entry = { level: idx + 1 };
+          for (const key of ["title", "description", "miscDescriptors", "addonDescriptors", "dietDescriptors", "allergenDescriptors"]) {
+            if (!isEmpty(node[key])) entry[key] = node[key];
+          }
+          return entry;
+        });
+        titleHierarchies[row.rootId] = chain;
+      }
+    }
+
+    const out = dishRows.map((d) => ({
+      menuTitle: titleHierarchies[d.menuTitleId] ?? [],
+      dishId: d.dishId,
+      menuCurationTaskId: d.menuCurationTaskId,
+      name: d.name ?? "",
+      description: d.description ?? "",
+      ingredients: d.ingredients ?? "",
+      dietDescriptors: d.dietDescriptors ?? "",
+      addonDescriptors: d.addonDescriptors ?? "",
+      miscDescriptors: d.miscDescriptors ?? "",
+      allergenDescriptors: d.allergenDescriptors ?? "",
+      dishType: d.dishType ?? "",
+      dishTypeIsIgnored: d.dishTypeIsIgnored ?? false,
+      courseType: d.courseType ?? "",
+      courseTypeIsIgnored: d.courseTypeIsIgnored ?? false,
+      diets: d.diets ?? "",
+      allergens: d.allergens ?? "",
+      mainIngredients: d.mainIngredients ?? "",
+      choiceIngredients: d.choiceIngredients ?? "",
+      additionalIngredients: d.additionalIngredients ?? "",
+      tier: d.tier ?? null,
+      dishTypeCertainty: d.dishTypeCertainty ?? null,
+      courseTypeCertainty: d.courseTypeCertainty ?? null,
+      dietsCertainty: d.dietsCertainty ?? null,
+      allergensCertainty: d.allergensCertainty ?? null,
+      ingredientsCertainty: d.ingredientsCertainty ?? null,
+    }));
+
+    res.json({
+      menuId,
+      brandName: meta.brandName ?? "",
+      isTop200: meta.isTop200 ?? false,
+      cuisineType: meta.cuisineType ?? "",
+      locationType: meta.locationType ?? "",
+      dishes: out,
+    });
+  } catch (err) {
+    console.error("menu-dish-export error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });

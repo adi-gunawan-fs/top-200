@@ -183,6 +183,12 @@ export async function fetchMenuFilterOptions() {
   return res.json();
 }
 
+export async function fetchMenuDishExport(menuId) {
+  const res = await fetch(`${API_BASE}/api/menu-dish-export?menuId=${menuId}`);
+  if (!res.ok) throw new Error(`Failed to fetch menu dish export: ${res.statusText}`);
+  return res.json();
+}
+
 export async function fetchMenuCurationTaskAiCuratorExportRows(taskId, limitPerTask) {
   const params = new URLSearchParams({ taskId: String(taskId) });
   if (Number.isFinite(limitPerTask) && limitPerTask > 0) {
