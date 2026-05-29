@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, ChevronLeft, ChevronRight, Download } from "lucide-react";
-import { fetchMenus, fetchMenuFilterOptions, fetchMenuDishExport, fetchMenusRandomSample } from "../lib/api";
+import { Loader2, Search, ChevronLeft, ChevronRight, Download, FileText } from "lucide-react";
+import { fetchMenus, fetchMenuFilterOptions, fetchMenuDishExport, fetchMenusRandomSample, fetchMenuSectionReport } from "../lib/api";
 import { escapeCsvValue } from "../lib/csvHelpers";
 
 const EXPORT_COLUMNS = [
@@ -103,6 +103,7 @@ function MenusPage() {
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkLog, setBulkLog] = useState([]);
+  const [reportExporting, setReportExporting] = useState(false);
 
   const appendBulkLog = (msg) => {
     const stamp = new Date().toLocaleTimeString();
@@ -293,6 +294,48 @@ function MenusPage() {
     setPage(0);
   }, [search, cuisineTypeId, locationTypeId, top200]);
 
+  const handleExportSectionReport = async () => {
+    setReportExporting(true);
+    try {
+      const data = await fetchMenuSectionReport({
+        search,
+        cuisineTypeId: cuisineTypeId ? Number(cuisineTypeId) : null,
+        locationTypeId: locationTypeId ? Number(locationTypeId) : null,
+        isTop200: top200 === "" ? null : top200 === "true",
+      });
+      const lines = [];
+      lines.push(["section", "name", "count", "percentage"].map(escapeCsvValue).join(","));
+      const pushRows = (section, rows) => {
+        for (const r of rows ?? []) {
+          lines.push(
+            [section, r.name, r.count, `${(r.pct * 100).toFixed(2)}%`]
+              .map(escapeCsvValue)
+              .join(","),
+          );
+        }
+      };
+      pushRows("Location Type", data.byLocationType);
+      pushRows("Cuisine Type", data.byCuisineType);
+      lines.push(["Total", "", data.total, "100.00%"].map(escapeCsvValue).join(","));
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `menus_section_report_${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Section report export failed:", err);
+      alert(`Section report export failed: ${err.message}`);
+    } finally {
+      setReportExporting(false);
+    }
+  };
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const startIdx = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const endIdx = Math.min(total, (page + 1) * PAGE_SIZE);
@@ -356,6 +399,19 @@ function MenusPage() {
             <option value="true">Top 200 only</option>
             <option value="false">Not Top 200</option>
           </select>
+          <button
+            type="button"
+            onClick={handleExportSectionReport}
+            disabled={reportExporting}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 enabled:hover:bg-slate-50 disabled:opacity-50"
+          >
+            {reportExporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileText className="h-3.5 w-3.5" />
+            )}
+            Section report
+          </button>
           <button
             type="button"
             onClick={handleBulkExport}

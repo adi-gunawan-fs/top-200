@@ -1107,6 +1107,86 @@ app.get("/api/menus", async (req, res) => {
   }
 });
 
+// GET /api/menu-section-report?...same filters as /api/menus
+// Returns counts of INCLUDED menus grouped by locationType and by cuisineType.
+// Null values are bucketed as "Not Tagged". Percentages are share of the filtered total.
+app.get("/api/menu-section-report", async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const cuisineTypeId = parseInt(req.query.cuisineTypeId, 10);
+  const locationTypeId = parseInt(req.query.locationTypeId, 10);
+  const rawTop200 = typeof req.query.isTop200 === "string" ? req.query.isTop200.toLowerCase() : "";
+  const isTop200Filter = rawTop200 === "true" ? true : rawTop200 === "false" ? false : null;
+
+  const params = [];
+  const where = [
+    `m."status" = 'INCLUDED'`,
+    `m."isDeleted" = false`,
+    `m."isFake" = false`,
+    `b."status" = 'INCLUDED'`,
+  ];
+  if (search) {
+    params.push(`%${search}%`);
+    where.push(`b."name" ILIKE $${params.length}`);
+  }
+  if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
+    params.push(cuisineTypeId);
+    where.push(`m."cuisineTypeId" = $${params.length}`);
+  }
+  if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
+    params.push(locationTypeId);
+    where.push(`b."mainLocationTypeId" = $${params.length}`);
+  }
+  if (isTop200Filter !== null) {
+    params.push(isTop200Filter);
+    where.push(`b."isTop200" = $${params.length}`);
+  }
+  const whereSql = where.join(" AND ");
+
+  try {
+    const [locationRes, cuisineRes] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(lt.name, 'Not Tagged') AS name,
+                COUNT(*)::int                   AS count
+         FROM menus m
+         INNER JOIN brands b ON b.id = m."brandId"
+         LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
+         WHERE ${whereSql}
+         GROUP BY COALESCE(lt.name, 'Not Tagged')
+         ORDER BY count DESC, name ASC`,
+        params,
+      ),
+      pool.query(
+        `SELECT COALESCE(ct.name, 'Not Tagged') AS name,
+                COUNT(*)::int                   AS count
+         FROM menus m
+         INNER JOIN brands b ON b.id = m."brandId"
+         LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         WHERE ${whereSql}
+         GROUP BY COALESCE(ct.name, 'Not Tagged')
+         ORDER BY count DESC, name ASC`,
+        params,
+      ),
+    ]);
+
+    const total = locationRes.rows.reduce((s, r) => s + r.count, 0);
+    const withPct = (rows) =>
+      rows.map((r) => ({
+        name: r.name,
+        count: r.count,
+        pct: total > 0 ? r.count / total : 0,
+      }));
+
+    res.json({
+      total,
+      byLocationType: withPct(locationRes.rows),
+      byCuisineType: withPct(cuisineRes.rows),
+    });
+  } catch (err) {
+    console.error("menu-section-report error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/menus-random-sample?limit=500&...filters
 // Returns up to `limit` random menus, one per brand, matching the same filters as /api/menus.
 app.get("/api/menus-random-sample", async (req, res) => {

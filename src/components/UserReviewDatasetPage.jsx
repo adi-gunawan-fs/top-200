@@ -448,7 +448,7 @@ function UserReviewDatasetPage() {
     }
   }
 
-  async function exportMenusForRows(rows, filenamePrefix, prelude = "") {
+  async function exportMenusForRows(rows, filenamePrefix, prelude = "", splits = 1) {
     setExportError("");
     setExportStatus(`${prelude}Resolving ${rows.length} location(s)…`);
     const { menus, skippedNoLocation, skippedNoMenu } = await resolveLocationsToMenus(rows);
@@ -458,10 +458,12 @@ function UserReviewDatasetPage() {
       return;
     }
 
-    const allCsvRows = [];
+    // Bucket CSV rows per menu so we can split the final files by menu, not by dish.
+    const perMenuCsvRows = [];
+    let totalDishRows = 0;
     for (let i = 0; i < menus.length; i++) {
       const menu = menus[i];
-      setExportStatus(`${prelude}Fetching ${menu.brandName || menu.menuId} (${i + 1}/${menus.length}) · ${allCsvRows.length} dishes`);
+      setExportStatus(`${prelude}Fetching ${menu.brandName || menu.menuId} (${i + 1}/${menus.length}) · ${totalDishRows} dishes`);
       try {
         const data = await fetchMenuDishExport(menu.menuId);
         const meta = {
@@ -470,22 +472,44 @@ function UserReviewDatasetPage() {
           cuisineType: data.cuisineType ?? "",
           locationType: data.locationType ?? "",
         };
-        for (const dish of data.dishes ?? []) {
-          allCsvRows.push(dishToCsvRow(dish, meta));
-        }
+        const csvRowsForMenu = (data.dishes ?? []).map((d) => dishToCsvRow(d, meta));
+        perMenuCsvRows.push(csvRowsForMenu);
+        totalDishRows += csvRowsForMenu.length;
       } catch (err) {
         console.error(`Failed menu ${menu.menuId}:`, err);
+        perMenuCsvRows.push([]);
       }
     }
 
     const stamp = new Date().toISOString().slice(0, 10);
-    const filename = `${filenamePrefix}_${stamp}.csv`;
-    downloadCsv(buildCsv(allCsvRows), filename);
     const skipParts = [];
     if (skippedNoLocation > 0) skipParts.push(`${skippedNoLocation} without location`);
     if (skippedNoMenu > 0) skipParts.push(`${skippedNoMenu} without menu`);
     const skipNote = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
-    setExportStatus(`Downloaded ${filename} · ${allCsvRows.length} dishes from ${menus.length} menus${skipNote}.`);
+
+    const splitCount = Math.max(1, Math.floor(splits));
+    if (splitCount === 1) {
+      const allCsvRows = perMenuCsvRows.flat();
+      const filename = `${filenamePrefix}_${stamp}.csv`;
+      downloadCsv(buildCsv(allCsvRows), filename);
+      setExportStatus(`Downloaded ${filename} · ${allCsvRows.length} dishes from ${menus.length} menus${skipNote}.`);
+      return;
+    }
+
+    // Even split by menu count, not dish count.
+    const perSplit = Math.ceil(menus.length / splitCount);
+    const filenames = [];
+    for (let s = 0; s < splitCount; s++) {
+      const start = s * perSplit;
+      const end = Math.min(menus.length, start + perSplit);
+      if (start >= end) break;
+      const chunkMenus = menus.slice(start, end);
+      const chunkRows = perMenuCsvRows.slice(start, end).flat();
+      const filename = `${filenamePrefix}_part${s + 1}of${splitCount}_${stamp}.csv`;
+      downloadCsv(buildCsv(chunkRows), filename);
+      filenames.push(`${filename} (${chunkMenus.length} menus · ${chunkRows.length} dishes)`);
+    }
+    setExportStatus(`Downloaded ${filenames.length} files · total ${totalDishRows} dishes from ${menus.length} menus${skipNote}.`);
   }
 
   async function handleBulkExport() {
@@ -538,7 +562,9 @@ function UserReviewDatasetPage() {
         .map(([k, v]) => `${k}:${v}`)
         .join(" ");
       const prelude = `Sample (${report.total}: messy ${report.messy}, sizes ${sizeSummary}, cuisines ${cuisineSummary}) · `;
-      await exportMenusForRows(rows, "user_review_sample_1000_export", prelude);
+      // Shuffle so the 4 split CSVs each get an even mix of messy/clean & cuisines.
+      const shuffled = shuffleInPlace(rows.slice());
+      await exportMenusForRows(shuffled, "user_review_sample_1000_export", prelude, 4);
     } catch (err) {
       setExportError(err.message || "Failed to export sample.");
       setExportStatus("");
