@@ -23,37 +23,31 @@ const COLUMNS = [
 ];
 
 const EXPORT_COLUMNS = [
-  "brand_name",
-  "is_top_200",
-  "cuisine_type",
-  "location_type",
   "dish_id",
-  "menu_title",
-  "name",
-  "description",
-  "ingredients_free_text",
-  "diet_descriptors",
-  "addon_descriptors",
+  "brand_name",
+  "dish_name",
+  "addon_desc",
   "misc_descriptors",
   "allergen_descriptors",
-  "dish_type",
-  "current_dish_type",
-  "suggested_dish_type",
-  "curated_dish_type",
-  "is_current_ignored_dish_type",
-  "course_type",
-  "is_ignored_course_type",
-  "diets",
-  "allergens",
-  "main_ingredients",
-  "choice_ingredients",
-  "additional_ingredients",
-  "tier",
-  "dish_type_certainty",
-  "course_type_certainty",
-  "diets_certainty",
-  "allergens_certainty",
-  "ingredients_certainty",
+  "diet_descriptors",
+  "grandparent_menu_title",
+  "grandparent_menu_desc",
+  "grandparent_menu_addon_desc",
+  "grandparent_menu_diet_desc",
+  "parent_menu_title",
+  "parent_menu_desc",
+  "parent_menu_addon_desc",
+  "parent_menu_diet_desc",
+  "menu_title",
+  "menu_desc",
+  "menu_addon_desc",
+  "menu_diet_desc",
+  "dish_desc",
+  "ingredients_text",
+  "current_diet",
+  "suggested_diet",
+  "curated_diet",
+  "diet_certainty",
 ];
 
 function toJsonCell(value) {
@@ -62,41 +56,48 @@ function toJsonCell(value) {
   return JSON.stringify(value);
 }
 
+function menuTitleLevel(chain, fromEnd) {
+  // chain is ordered root-first (grandparent → parent → child).
+  // fromEnd: 0 = leaf (child), 1 = parent, 2 = grandparent.
+  if (!Array.isArray(chain) || chain.length === 0) return null;
+  const idx = chain.length - 1 - fromEnd;
+  return idx >= 0 ? chain[idx] : null;
+}
+
 function dishToCsvRow(dish, meta) {
+  const chain = dish.menuTitle ?? [];
+  const child = menuTitleLevel(chain, 0);
+  const parent = menuTitleLevel(chain, 1);
+  const grandParent = menuTitleLevel(chain, 2);
+
   return {
-    brand_name: meta.brandName ?? "",
-    is_top_200: meta.isTop200 ? "true" : "false",
-    cuisine_type: meta.cuisineType ?? "",
-    location_type: meta.locationType ?? "",
     dish_id: dish.menuCurationTaskId
       ? `=HYPERLINK("https://menu-curator.foodstyles.com/menu-curation-tasks/${dish.menuCurationTaskId}?dishIds%5B0%5D=${dish.dishId}&shouldScrollToDish=true","${dish.dishId}")`
       : dish.dishId,
-    menu_title: JSON.stringify(dish.menuTitle ?? []),
-    name: dish.name,
-    description: dish.description,
-    ingredients_free_text: toJsonCell(dish.ingredients),
-    diet_descriptors: toJsonCell(dish.dietDescriptors),
-    addon_descriptors: toJsonCell(dish.addonDescriptors),
+    brand_name: meta.brandName ?? "",
+    dish_name: dish.name ?? "",
+    addon_desc: toJsonCell(dish.addonDescriptors),
     misc_descriptors: toJsonCell(dish.miscDescriptors),
     allergen_descriptors: toJsonCell(dish.allergenDescriptors),
-    dish_type: dish.dishType,
-    current_dish_type: dish.currentDishType ?? dish.dishType ?? "",
-    suggested_dish_type: dish.suggestedDishType ?? "",
-    curated_dish_type: dish.curatedDishType ?? "",
-    is_current_ignored_dish_type: dish.dishTypeIsIgnored ? "true" : "false",
-    course_type: dish.courseType,
-    is_ignored_course_type: dish.courseTypeIsIgnored ? "true" : "false",
-    diets: dish.diets,
-    allergens: dish.allergens,
-    main_ingredients: dish.mainIngredients,
-    choice_ingredients: dish.choiceIngredients,
-    additional_ingredients: dish.additionalIngredients,
-    tier: dish.tier ?? "",
-    dish_type_certainty: dish.dishTypeCertainty ?? "",
-    course_type_certainty: dish.courseTypeCertainty ?? "",
-    diets_certainty: dish.dietsCertainty ?? "",
-    allergens_certainty: dish.allergensCertainty ?? "",
-    ingredients_certainty: dish.ingredientsCertainty ?? "",
+    diet_descriptors: toJsonCell(dish.dietDescriptors),
+    grandparent_menu_title: grandParent?.title ?? "",
+    grandparent_menu_desc: grandParent?.description ?? "",
+    grandparent_menu_addon_desc: toJsonCell(grandParent?.addonDescriptors),
+    grandparent_menu_diet_desc: toJsonCell(grandParent?.dietDescriptors),
+    parent_menu_title: parent?.title ?? "",
+    parent_menu_desc: parent?.description ?? "",
+    parent_menu_addon_desc: toJsonCell(parent?.addonDescriptors),
+    parent_menu_diet_desc: toJsonCell(parent?.dietDescriptors),
+    menu_title: child?.title ?? "",
+    menu_desc: child?.description ?? "",
+    menu_addon_desc: toJsonCell(child?.addonDescriptors),
+    menu_diet_desc: toJsonCell(child?.dietDescriptors),
+    dish_desc: dish.description ?? "",
+    ingredients_text: toJsonCell(dish.ingredients),
+    current_diet: dish.currentDiets ?? dish.diets ?? "",
+    suggested_diet: dish.suggestedDiets ?? "",
+    curated_diet: dish.curatedDiets ?? "",
+    diet_certainty: dish.dietsCertainty ?? "",
   };
 }
 

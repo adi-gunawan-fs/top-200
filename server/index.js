@@ -1254,7 +1254,8 @@ app.get("/api/menu-dish-export", async (req, res) => {
          SELECT DISTINCT ON (ds."dishId")
            ds."dishId",
            ds."menuCurationTaskId",
-           ds."dishTypeId"
+           ds."dishTypeId",
+           ds."dietIds"
          FROM "dishSnapshots" ds
          INNER JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
          INNER JOIN latest_curator_cutoff lcc ON lcc."menuCurationTaskId" = ds."menuCurationTaskId"
@@ -1288,6 +1289,9 @@ app.get("/api/menu-dish-export", async (req, res) => {
          la."allergensCertainty",
          la."ingredientsCertainty",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la."dietIds"))                AS "diets",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la."dietIds"))                AS "currentDiets",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la_prev."dietIds"))           AS "suggestedDiets",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(curator."dietIds"))           AS "curatedDiets",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM allergens   WHERE id = ANY(la."allergenIds"))            AS "allergens",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."mainIngredientIds"))      AS "mainIngredients",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."choiceIngredientIds"))    AS "choiceIngredients",
@@ -1300,7 +1304,7 @@ app.get("/api/menu-dish-export", async (req, res) => {
         AND la_prev."menuCurationTaskId" = la."menuCurationTaskId"
        LEFT JOIN "dishTypes" dt_prev ON dt_prev.id = la_prev."dishTypeId"
        LEFT JOIN LATERAL (
-         SELECT ds_curator."dishTypeId"
+         SELECT ds_curator."dishTypeId", ds_curator."dietIds"
          FROM "dishSnapshots" ds_curator
          WHERE ds_curator."menuCurationTaskId" = la."menuCurationTaskId"
            AND ds_curator."dishId" = la."dishId"
@@ -1411,6 +1415,9 @@ app.get("/api/menu-dish-export", async (req, res) => {
       courseType: d.courseType ?? "",
       courseTypeIsIgnored: d.courseTypeIsIgnored ?? false,
       diets: d.diets ?? "",
+      currentDiets: d.currentDiets ?? "",
+      suggestedDiets: d.suggestedDiets ?? "",
+      curatedDiets: d.curatedDiets ?? "",
       allergens: d.allergens ?? "",
       mainIngredients: d.mainIngredients ?? "",
       choiceIngredients: d.choiceIngredients ?? "",
