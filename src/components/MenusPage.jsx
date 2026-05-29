@@ -143,7 +143,7 @@ function MenusPage() {
   };
 
   const handleBulkExport = async () => {
-    const MAX_MENUS = 500;
+    const MAX_MENUS = 2000;
     const MAX_DISHES = 5000;
     const MAX_DISHES_PER_MENU = 20;
     setBulkExporting(true);
@@ -188,7 +188,7 @@ function MenusPage() {
             cuisineType: data.cuisineType ?? menu.cuisineType ?? "",
             locationType: data.locationType ?? menu.locationType ?? "",
           };
-          const dishes = data.dishes ?? [];
+          const dishes = (data.dishes ?? []).filter((dish) => String(dish.curatedDishType ?? "").trim() !== "");
           // Per-menu cap: sample up to MAX_DISHES_PER_MENU random dishes from this menu.
           let perMenuDishes = dishes;
           if (dishes.length > MAX_DISHES_PER_MENU) {
@@ -208,7 +208,7 @@ function MenusPage() {
             appendBulkLog(`Menu ${menu.menuId}: included ${toAdd.length}/${perMenuDishes.length} dishes (cap ${MAX_DISHES} reached).`);
             dishCapHit = true;
           } else if (dishes.length === 0) {
-            appendBulkLog(`Menu ${menu.menuId} (${menu.brandName}): 0 dishes available.`);
+            appendBulkLog(`Menu ${menu.menuId} (${menu.brandName}): 0 dishes with curated dish type.`);
           }
         } catch (err) {
           appendBulkLog(`✗ menu ${menu.menuId} (${menu.brandName}): ${err.message}`);
