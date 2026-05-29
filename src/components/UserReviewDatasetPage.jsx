@@ -120,6 +120,167 @@ function downloadCsv(csvContent, filename) {
   URL.revokeObjectURL(url);
 }
 
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+const CUISINE_GROUPS = [
+  { key: "curry_house", label: "Curry Houses", target: 131, types: ["curry house"] },
+  { key: "pub", label: "Pubs", target: 107, types: ["pub", "gastro pub", "country pub", "brewpub"] },
+  { key: "fast_food", label: "Fast Food", target: 76, types: ["fast food"] },
+  { key: "pizzeria", label: "Pizzerias", target: 67, types: ["pizzeria"] },
+  { key: "chip_shop", label: "Chip Shops", target: 67, types: ["chip shop"] },
+  { key: "kebab_shop", label: "Kebab Shops", target: 67, types: ["kebab shop"] },
+  { key: "restaurant", label: "General Restaurants", target: 64, types: ["restaurant"] },
+  { key: "cafe", label: "Cafes", target: 54, types: ["cafe", "coffee shop"] },
+];
+
+const BRAND_SIZE_TARGETS = { individual: 915, small: 62, large: 23 };
+const MESSY_TARGET = 50;
+const TOTAL_TARGET = 1000;
+const OTHER_KEY = "_other";
+
+function cuisineKeyFor(restaurantType) {
+  const t = String(restaurantType ?? "").trim().toLowerCase();
+  for (const g of CUISINE_GROUPS) {
+    if (g.types.includes(t)) return g.key;
+  }
+  return OTHER_KEY;
+}
+
+// Best-effort stratified sample.
+//  - Exactly 50 messy rows, exactly 950 non-messy (subject to availability).
+//  - brandSize proportions: individual 915, small 62, large 23 — best effort.
+//  - Cuisine targets per CUISINE_GROUPS — best effort, "_other" gets the remainder.
+// Rows without menuCuratorLocationId are excluded from sampling.
+function sampleRows(allRows) {
+  const eligible = allRows.filter(
+    (r) => r.menuCuratorLocationId !== "" && r.menuCuratorLocationId !== null && r.menuCuratorLocationId !== undefined
+  );
+
+  const messyPool = shuffleInPlace(eligible.filter((r) => r.isMessy === "true"));
+  const cleanPool = shuffleInPlace(eligible.filter((r) => r.isMessy !== "true"));
+
+  const messyCount = Math.min(MESSY_TARGET, messyPool.length);
+  const cleanCount = Math.min(TOTAL_TARGET - messyCount, cleanPool.length);
+
+  // Split each pool's rows into buckets keyed by `${brandSize}|${cuisineKey}`.
+  const bucketize = (pool) => {
+    const map = new Map();
+    for (const r of pool) {
+      const size = r.brandSize || "individual";
+      const ck = cuisineKeyFor(r.restaurantType);
+      const key = `${size}|${ck}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    }
+    return map;
+  };
+
+  // Pull `n` rows from `pool` while trying to respect per-brandSize and per-cuisine quotas.
+  // Two-pass: first fill cuisine quotas proportionally; then top up brand-size shortfalls
+  // and finally fill remaining slots randomly.
+  const drawSubsample = (pool, n) => {
+    if (n <= 0 || pool.length === 0) return [];
+    const scale = n / TOTAL_TARGET;
+    const cuisineQuotas = new Map();
+    for (const g of CUISINE_GROUPS) {
+      cuisineQuotas.set(g.key, Math.round(g.target * scale));
+    }
+    const fixedCuisineTotal = [...cuisineQuotas.values()].reduce((s, v) => s + v, 0);
+    cuisineQuotas.set(OTHER_KEY, Math.max(0, n - fixedCuisineTotal));
+
+    const sizeQuotas = new Map();
+    for (const [size, t] of Object.entries(BRAND_SIZE_TARGETS)) {
+      sizeQuotas.set(size, Math.round(t * scale));
+    }
+    // Adjust so size totals = n.
+    const sumSize = [...sizeQuotas.values()].reduce((s, v) => s + v, 0);
+    if (sumSize !== n) {
+      sizeQuotas.set("individual", (sizeQuotas.get("individual") ?? 0) + (n - sumSize));
+    }
+
+    const buckets = bucketize(pool);
+    const picked = [];
+    const pickedIds = new Set();
+
+    const tryPickFromBucket = (bucketKey) => {
+      const arr = buckets.get(bucketKey);
+      if (!arr) return null;
+      while (arr.length > 0) {
+        const r = arr.pop();
+        if (!pickedIds.has(r.id)) {
+          pickedIds.add(r.id);
+          return r;
+        }
+      }
+      return null;
+    };
+
+    // Pass 1: for each cuisine quota, draw rows preferring brand-size buckets that still need filling.
+    for (const [cKey, cQuota] of cuisineQuotas.entries()) {
+      let remaining = cQuota;
+      // Try sizes in proportional order: individual, small, large.
+      const sizeOrder = shuffleInPlace(["individual", "small", "large"]);
+      while (remaining > 0) {
+        let drew = false;
+        for (const size of sizeOrder) {
+          if (remaining <= 0) break;
+          if ((sizeQuotas.get(size) ?? 0) <= 0) continue;
+          const r = tryPickFromBucket(`${size}|${cKey}`);
+          if (r) {
+            picked.push(r);
+            sizeQuotas.set(size, sizeQuotas.get(size) - 1);
+            remaining -= 1;
+            drew = true;
+          }
+        }
+        if (!drew) break;
+      }
+      cuisineQuotas.set(cKey, remaining);
+    }
+
+    // Pass 2: top up remaining slots from anywhere in pool, preferring under-filled size quotas.
+    if (picked.length < n) {
+      const leftover = pool.filter((r) => !pickedIds.has(r.id));
+      shuffleInPlace(leftover);
+      // Prefer ones whose brandSize still has quota.
+      leftover.sort((a, b) => {
+        const aq = sizeQuotas.get(a.brandSize) ?? 0;
+        const bq = sizeQuotas.get(b.brandSize) ?? 0;
+        return bq - aq;
+      });
+      for (const r of leftover) {
+        if (picked.length >= n) break;
+        picked.push(r);
+        pickedIds.add(r.id);
+        if ((sizeQuotas.get(r.brandSize) ?? 0) > 0) {
+          sizeQuotas.set(r.brandSize, sizeQuotas.get(r.brandSize) - 1);
+        }
+      }
+    }
+
+    return picked;
+  };
+
+  const messySample = drawSubsample(messyPool, messyCount);
+  const cleanSample = drawSubsample(cleanPool, cleanCount);
+  const combined = [...messySample, ...cleanSample];
+
+  // Build a small report breaking down what we actually got.
+  const report = { total: combined.length, messy: messySample.length, clean: cleanSample.length, brandSize: {}, cuisine: {} };
+  for (const r of combined) {
+    report.brandSize[r.brandSize] = (report.brandSize[r.brandSize] || 0) + 1;
+    const ck = cuisineKeyFor(r.restaurantType);
+    report.cuisine[ck] = (report.cuisine[ck] || 0) + 1;
+  }
+  return { rows: combined, report };
+}
+
 function safeFilenameSegment(value, fallback) {
   const s = String(value ?? "").trim().replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "");
   return s || fallback;
@@ -287,50 +448,99 @@ function UserReviewDatasetPage() {
     }
   }
 
+  async function exportMenusForRows(rows, filenamePrefix, prelude = "") {
+    setExportError("");
+    setExportStatus(`${prelude}Resolving ${rows.length} location(s)…`);
+    const { menus, skippedNoLocation, skippedNoMenu } = await resolveLocationsToMenus(rows);
+    if (menus.length === 0) {
+      setExportError("No menus found for the selected rows.");
+      setExportStatus("");
+      return;
+    }
+
+    const allCsvRows = [];
+    for (let i = 0; i < menus.length; i++) {
+      const menu = menus[i];
+      setExportStatus(`${prelude}Fetching ${menu.brandName || menu.menuId} (${i + 1}/${menus.length}) · ${allCsvRows.length} dishes`);
+      try {
+        const data = await fetchMenuDishExport(menu.menuId);
+        const meta = {
+          brandName: data.brandName ?? menu.brandName ?? "",
+          isTop200: data.isTop200 ?? false,
+          cuisineType: data.cuisineType ?? "",
+          locationType: data.locationType ?? "",
+        };
+        for (const dish of data.dishes ?? []) {
+          allCsvRows.push(dishToCsvRow(dish, meta));
+        }
+      } catch (err) {
+        console.error(`Failed menu ${menu.menuId}:`, err);
+      }
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const filename = `${filenamePrefix}_${stamp}.csv`;
+    downloadCsv(buildCsv(allCsvRows), filename);
+    const skipParts = [];
+    if (skippedNoLocation > 0) skipParts.push(`${skippedNoLocation} without location`);
+    if (skippedNoMenu > 0) skipParts.push(`${skippedNoMenu} without menu`);
+    const skipNote = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
+    setExportStatus(`Downloaded ${filename} · ${allCsvRows.length} dishes from ${menus.length} menus${skipNote}.`);
+  }
+
   async function handleBulkExport() {
     const selected = filteredRows.filter((r) => selectedIds.has(String(r.id)));
     if (selected.length === 0) return;
     setExportingBulk(true);
-    setExportError("");
-    setExportStatus(`Resolving ${selected.length} location(s)…`);
     try {
-      const { menus, skippedNoLocation, skippedNoMenu } = await resolveLocationsToMenus(selected);
-      if (menus.length === 0) {
-        setExportError("No menus found for the selected rows.");
-        setExportStatus("");
-        return;
-      }
+      await exportMenusForRows(selected, "user_review_menus_export");
+    } catch (err) {
+      setExportError(err.message || "Failed to export menus.");
+      setExportStatus("");
+    } finally {
+      setExportingBulk(false);
+    }
+  }
 
-      const allCsvRows = [];
-      for (let i = 0; i < menus.length; i++) {
-        const menu = menus[i];
-        setExportStatus(`Fetching ${menu.brandName || menu.menuId} (${i + 1}/${menus.length}) · ${allCsvRows.length} dishes`);
-        try {
-          const data = await fetchMenuDishExport(menu.menuId);
-          const meta = {
-            brandName: data.brandName ?? menu.brandName ?? "",
-            isTop200: data.isTop200 ?? false,
-            cuisineType: data.cuisineType ?? "",
-            locationType: data.locationType ?? "",
-          };
-          for (const dish of data.dishes ?? []) {
-            allCsvRows.push(dishToCsvRow(dish, meta));
-          }
-        } catch (err) {
-          console.error(`Failed menu ${menu.menuId}:`, err);
+  async function handleStratifiedSampleExport() {
+    if (!allRows) return;
+    setExportingBulk(true);
+    setExportError("");
+    setExportStatus("Pre-resolving location → menu mapping…");
+    try {
+      // Pre-resolve every eligible location ID so we only sample rows that will produce a menu.
+      const eligible = allRows.filter(
+        (r) => r.menuCuratorLocationId !== "" && r.menuCuratorLocationId !== null && r.menuCuratorLocationId !== undefined
+      );
+      const allLocationIds = [...new Set(eligible.map((r) => r.menuCuratorLocationId))];
+      const CHUNK = 2000;
+      const resolvableIds = new Set();
+      for (let i = 0; i < allLocationIds.length; i += CHUNK) {
+        const chunk = allLocationIds.slice(i, i + CHUNK);
+        setExportStatus(`Pre-resolving locations… (${Math.min(i + CHUNK, allLocationIds.length)}/${allLocationIds.length})`);
+        const resolved = await fetchMenuCuratorLocationMenus(chunk);
+        for (const r of resolved) {
+          if (r?.menuId) resolvableIds.add(String(r.locationId));
         }
       }
 
-      const stamp = new Date().toISOString().slice(0, 10);
-      const filename = `user_review_menus_export_${stamp}.csv`;
-      downloadCsv(buildCsv(allCsvRows), filename);
-      const skipParts = [];
-      if (skippedNoLocation > 0) skipParts.push(`${skippedNoLocation} without location`);
-      if (skippedNoMenu > 0) skipParts.push(`${skippedNoMenu} without menu`);
-      const skipNote = skipParts.length > 0 ? ` · skipped ${skipParts.join(", ")}` : "";
-      setExportStatus(`Downloaded ${filename} · ${allCsvRows.length} dishes from ${menus.length} menus${skipNote}.`);
+      const resolvableRows = allRows.filter((r) => resolvableIds.has(String(r.menuCuratorLocationId)));
+      setExportStatus(`Sampling 1,000 of ${resolvableRows.length.toLocaleString()} resolvable menus…`);
+
+      const { rows, report } = sampleRows(resolvableRows);
+      if (rows.length < TOTAL_TARGET) {
+        setExportError(`Only ${rows.length} resolvable rows could be sampled (target ${TOTAL_TARGET}).`);
+      }
+      const cuisineSummary = Object.entries(report.cuisine)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(" ");
+      const sizeSummary = Object.entries(report.brandSize)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(" ");
+      const prelude = `Sample (${report.total}: messy ${report.messy}, sizes ${sizeSummary}, cuisines ${cuisineSummary}) · `;
+      await exportMenusForRows(rows, "user_review_sample_1000_export", prelude);
     } catch (err) {
-      setExportError(err.message || "Failed to export menus.");
+      setExportError(err.message || "Failed to export sample.");
       setExportStatus("");
     } finally {
       setExportingBulk(false);
@@ -406,6 +616,16 @@ function UserReviewDatasetPage() {
         <div className="flex items-center gap-2">
           {exportStatus && <span className="text-[11px] text-slate-500">{exportStatus}</span>}
           {exportError && <span className="text-[11px] text-red-600">{exportError}</span>}
+          <button
+            type="button"
+            onClick={handleStratifiedSampleExport}
+            disabled={exportingBulk || exportingRowId !== null}
+            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+            title="Sample 1,000 menus by brand-size & cuisine quotas with 50 messy locations, then export"
+          >
+            {exportingBulk ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Sample 1,000 &amp; Export
+          </button>
           <button
             type="button"
             onClick={handleBulkExport}
