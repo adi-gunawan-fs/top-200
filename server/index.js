@@ -14,6 +14,13 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+if (!process.env.DATABASE_URL_METADATA) {
+  console.error("Missing DATABASE_URL_METADATA in environment variables.");
+  process.exit(1);
+}
+
+const metadataPool = new Pool({ connectionString: process.env.DATABASE_URL_METADATA });
+
 if (!process.env.BRAND_LIST) {
   console.error("Missing BRAND_LIST in environment variables.");
   process.exit(1);
@@ -1553,6 +1560,88 @@ app.post("/api/menu-curator-locations-to-menus", async (req, res) => {
     res.json({ rows });
   } catch (err) {
     console.error("menu-curator-locations-to-menus error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/dish-types — curation-enabled dish types from the metadata DB.
+app.get("/api/metadata/dish-types", async (_req, res) => {
+  try {
+    const { rows } = await metadataPool.query(
+      `SELECT id, name, "parentId", "isCurationEnabled", "isIgnored", position
+       FROM "dishTypes"
+       ORDER BY position ASC NULLS LAST, name ASC`,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("metadata dish-types error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/course-types — all course types from the metadata DB.
+app.get("/api/metadata/course-types", async (_req, res) => {
+  try {
+    const { rows } = await metadataPool.query(
+      `SELECT id, name, "parentId", "isCurationEnabled", "isIgnored", position
+       FROM "courseTypes"
+       ORDER BY position ASC NULLS LAST, name ASC`,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("metadata course-types error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/ingredients — all ingredients from the metadata DB.
+app.get("/api/metadata/ingredients", async (_req, res) => {
+  try {
+    const { rows } = await metadataPool.query(
+      `SELECT id, name, "parentId", "isCurationEnabled", position
+       FROM "ingredients"
+       ORDER BY position ASC NULLS LAST, name ASC`,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("metadata ingredients error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/diets — diets grouped under their dietCategories.
+app.get("/api/metadata/diets", async (_req, res) => {
+  try {
+    const [diets, categories] = await Promise.all([
+      metadataPool.query(
+        `SELECT id, name, "isCurationEnabled", position, "dietCategoryId"
+         FROM "diets"
+         ORDER BY position ASC NULLS LAST, name ASC`,
+      ),
+      metadataPool.query(
+        `SELECT id, name, "isCurationEnabled", position
+         FROM "dietCategories"
+         ORDER BY position ASC NULLS LAST, name ASC`,
+      ),
+    ]);
+    res.json({ rows: diets.rows, categories: categories.rows });
+  } catch (err) {
+    console.error("metadata diets error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/allergens — flat list from the metadata DB.
+app.get("/api/metadata/allergens", async (_req, res) => {
+  try {
+    const { rows } = await metadataPool.query(
+      `SELECT id, name, "isCurationEnabled", position
+       FROM "allergens"
+       ORDER BY position ASC NULLS LAST, name ASC`,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("metadata allergens error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

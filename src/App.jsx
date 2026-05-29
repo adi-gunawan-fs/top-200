@@ -6,6 +6,11 @@ import LargeBrandDishPage from "./components/LargeBrandDishPage";
 import ExperimentPage from "./components/ExperimentPage";
 import MenusPage from "./components/MenusPage";
 import UserReviewDatasetPage from "./components/UserReviewDatasetPage";
+import DishTypePage from "./components/DishTypePage";
+import CourseTypePage from "./components/CourseTypePage";
+import IngredientPage from "./components/IngredientPage";
+import DietPage from "./components/DietPage";
+import AllergenPage from "./components/AllergenPage";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { WeightsProvider } from "./contexts/WeightsContext";
@@ -14,22 +19,38 @@ const MODE_LARGE_BRAND = "large-brand";
 const MODE_EXPERIMENT = "experiment";
 const MODE_MENUS = "menus";
 const MODE_USER_REVIEW_DATASET = "user-review-dataset";
+const MODE_DISH_TYPE = "dish-type";
+const MODE_COURSE_TYPE = "course-type";
+const MODE_INGREDIENT = "ingredient";
+const MODE_DIET = "diet";
+const MODE_ALLERGEN = "allergen";
 const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 const ROUTES = {
   [MODE_LARGE_BRAND]: "/top-200/large-brand-list",
   [MODE_EXPERIMENT]: "/top-200/experiments",
   [MODE_MENUS]: "/menu-curator/menus",
   [MODE_USER_REVIEW_DATASET]: "/menu-curator/user-review-dataset",
+  [MODE_DISH_TYPE]: "/metadata/dish-type",
+  [MODE_COURSE_TYPE]: "/metadata/course-type",
+  [MODE_INGREDIENT]: "/metadata/ingredient",
+  [MODE_DIET]: "/metadata/diet",
+  [MODE_ALLERGEN]: "/metadata/allergen",
 };
 
 const SECTION_TOP_200 = "top-200";
 const SECTION_MENU_CURATOR = "menu-curator";
+const SECTION_METADATA = "metadata";
 
 const MODE_SECTION = {
   [MODE_LARGE_BRAND]: SECTION_TOP_200,
   [MODE_EXPERIMENT]: SECTION_TOP_200,
   [MODE_MENUS]: SECTION_MENU_CURATOR,
   [MODE_USER_REVIEW_DATASET]: SECTION_MENU_CURATOR,
+  [MODE_DISH_TYPE]: SECTION_METADATA,
+  [MODE_COURSE_TYPE]: SECTION_METADATA,
+  [MODE_INGREDIENT]: SECTION_METADATA,
+  [MODE_DIET]: SECTION_METADATA,
+  [MODE_ALLERGEN]: SECTION_METADATA,
 };
 
 function getDefaultMode() {
@@ -41,6 +62,11 @@ function getModeFromPathname(pathname) {
   if (pathname === ROUTES[MODE_EXPERIMENT]) return MODE_EXPERIMENT;
   if (pathname === ROUTES[MODE_MENUS]) return MODE_MENUS;
   if (pathname === ROUTES[MODE_USER_REVIEW_DATASET]) return MODE_USER_REVIEW_DATASET;
+  if (pathname === ROUTES[MODE_DISH_TYPE]) return MODE_DISH_TYPE;
+  if (pathname === ROUTES[MODE_COURSE_TYPE]) return MODE_COURSE_TYPE;
+  if (pathname === ROUTES[MODE_INGREDIENT]) return MODE_INGREDIENT;
+  if (pathname === ROUTES[MODE_DIET]) return MODE_DIET;
+  if (pathname === ROUTES[MODE_ALLERGEN]) return MODE_ALLERGEN;
   return null;
 }
 
@@ -50,9 +76,11 @@ function App() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [topMenuOpen, setTopMenuOpen] = useState(false);
   const [menuCuratorMenuOpen, setMenuCuratorMenuOpen] = useState(false);
+  const [metadataMenuOpen, setMetadataMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const topMenuRef = useRef(null);
   const menuCuratorMenuRef = useRef(null);
+  const metadataMenuRef = useRef(null);
 
   const [mode, setMode] = useState(() => getModeFromPathname(window.location.pathname) ?? getDefaultMode());
   const [selectedLargeBrand, setSelectedLargeBrand] = useState(null);
@@ -70,6 +98,9 @@ function App() {
       }
       if (menuCuratorMenuRef.current && !menuCuratorMenuRef.current.contains(event.target)) {
         setMenuCuratorMenuOpen(false);
+      }
+      if (metadataMenuRef.current && !metadataMenuRef.current.contains(event.target)) {
+        setMetadataMenuOpen(false);
       }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setUserMenuOpen(false);
@@ -138,6 +169,13 @@ function App() {
   const menuCuratorOptions = [
     { id: MODE_MENUS, label: "Menus", enabled: true },
     { id: MODE_USER_REVIEW_DATASET, label: "User Review Dataset", enabled: true },
+  ].filter((option) => option.enabled);
+  const metadataOptions = [
+    { id: MODE_DISH_TYPE, label: "Dish Type", enabled: true },
+    { id: MODE_COURSE_TYPE, label: "Course Type", enabled: true },
+    { id: MODE_INGREDIENT, label: "Ingredient", enabled: true },
+    { id: MODE_DIET, label: "Diet", enabled: true },
+    { id: MODE_ALLERGEN, label: "Allergen", enabled: true },
   ].filter((option) => option.enabled);
 
   return (
@@ -213,6 +251,45 @@ function App() {
                               onClick={() => {
                                 handleSwitchMode(option.id);
                                 setMenuCuratorMenuOpen(false);
+                              }}
+                              className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
+                                optionActive
+                                  ? "text-blue-600 hover:bg-blue-50"
+                                  : "text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="relative" ref={metadataMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setMetadataMenuOpen((v) => !v)}
+                      className={`border-b-2 px-3 py-4 text-sm transition-colors ${
+                        activeSection === SECTION_METADATA
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Metadata
+                    </button>
+
+                    {metadataMenuOpen ? (
+                      <div className="absolute left-0 top-full z-[260] mt-1 w-44 overflow-hidden rounded-sm border border-slate-200 bg-white shadow-lg">
+                        {metadataOptions.map((option) => {
+                          const optionActive = option.id === mode;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() => {
+                                handleSwitchMode(option.id);
+                                setMetadataMenuOpen(false);
                               }}
                               className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
                                 optionActive
@@ -304,6 +381,16 @@ function App() {
             <UserReviewDatasetPage />
           ) : mode === MODE_EXPERIMENT ? (
             <ExperimentPage sessionUserId={session.user.id} />
+          ) : mode === MODE_DISH_TYPE ? (
+            <DishTypePage />
+          ) : mode === MODE_COURSE_TYPE ? (
+            <CourseTypePage />
+          ) : mode === MODE_INGREDIENT ? (
+            <IngredientPage />
+          ) : mode === MODE_DIET ? (
+            <DietPage />
+          ) : mode === MODE_ALLERGEN ? (
+            <AllergenPage />
           ) : (
             <BrandListPage
               onBack={() => setSelectedLargeBrand(null)}

@@ -3,6 +3,40 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3000";
 
+export async function fetchDishTypes() {
+  const res = await fetch(`${API_BASE}/api/metadata/dish-types`);
+  if (!res.ok) throw new Error(`Failed to fetch dish types: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
+export async function fetchCourseTypes() {
+  const res = await fetch(`${API_BASE}/api/metadata/course-types`);
+  if (!res.ok) throw new Error(`Failed to fetch course types: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
+export async function fetchIngredients() {
+  const res = await fetch(`${API_BASE}/api/metadata/ingredients`);
+  if (!res.ok) throw new Error(`Failed to fetch ingredients: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
+export async function fetchDiets() {
+  const res = await fetch(`${API_BASE}/api/metadata/diets`);
+  if (!res.ok) throw new Error(`Failed to fetch diets: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAllergens() {
+  const res = await fetch(`${API_BASE}/api/metadata/allergens`);
+  if (!res.ok) throw new Error(`Failed to fetch allergens: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
 export async function fetchBrands() {
   const res = await fetch(`${API_BASE}/api/brands`);
   if (!res.ok) throw new Error(`Failed to fetch brands: ${res.statusText}`);
