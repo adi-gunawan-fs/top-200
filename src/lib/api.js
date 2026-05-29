@@ -211,6 +211,22 @@ export async function fetchMenuCurationTaskAiCuratorExportRows(taskId, limitPerT
   return rows ?? [];
 }
 
+export async function fetchMenuCuratorLocationMenus(locationIds) {
+  const cleaned = (locationIds ?? [])
+    .map((id) => parseInt(id, 10))
+    .filter((id) => Number.isFinite(id));
+  if (cleaned.length === 0) return [];
+
+  const res = await fetch(`${API_BASE}/api/menu-curator-locations-to-menus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locationIds: cleaned }),
+  });
+  if (!res.ok) throw new Error(`Failed to resolve locations to menus: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows ?? [];
+}
+
 export async function fetchMenuCurationTaskTierOneExportRows(taskId, limitPerTask) {
   const params = new URLSearchParams({ taskId: String(taskId) });
   if (Number.isFinite(limitPerTask) && limitPerTask > 0) {

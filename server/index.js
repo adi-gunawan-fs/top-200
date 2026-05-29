@@ -1437,6 +1437,39 @@ app.get("/api/menu-dish-export", async (req, res) => {
   }
 });
 
+// POST /api/menu-curator-locations-to-menus
+// Body: { locationIds: number[] }
+// Resolves menu-curator location IDs to menus via "menusLocationsForPrediction".
+app.post("/api/menu-curator-locations-to-menus", async (req, res) => {
+  const raw = Array.isArray(req.body?.locationIds) ? req.body.locationIds : [];
+  const locationIds = raw
+    .map((id) => parseInt(id, 10))
+    .filter((id) => Number.isFinite(id));
+
+  if (locationIds.length === 0) return res.json({ rows: [] });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (mlfp."locationId")
+         mlfp."locationId"          AS "locationId",
+         mlfp."menuId"              AS "menuId",
+         b.id                       AS "brandId",
+         b.name                     AS "brandName"
+       FROM "menusLocationsForPrediction" mlfp
+       LEFT JOIN "menus" m  ON m.id = mlfp."menuId"
+       LEFT JOIN "brands" b ON b.id = m."brandId"
+       WHERE mlfp."locationId" = ANY($1)
+       ORDER BY mlfp."locationId", mlfp."menuId" DESC NULLS LAST`,
+      [locationIds],
+    );
+
+    res.json({ rows });
+  } catch (err) {
+    console.error("menu-curator-locations-to-menus error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 });
