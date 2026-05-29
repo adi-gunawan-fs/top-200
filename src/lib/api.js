@@ -17,6 +17,19 @@ export async function fetchCourseTypes() {
   return rows;
 }
 
+export async function fetchLocationTypes() {
+  const res = await fetch(`${API_BASE}/api/metadata/location-types`);
+  if (!res.ok) throw new Error(`Failed to fetch location types: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchCuisines() {
+  const res = await fetch(`${API_BASE}/api/metadata/cuisines`);
+  if (!res.ok) throw new Error(`Failed to fetch cuisines: ${res.statusText}`);
+  const { rows } = await res.json();
+  return rows;
+}
+
 export async function fetchIngredients() {
   const res = await fetch(`${API_BASE}/api/metadata/ingredients`);
   if (!res.ok) throw new Error(`Failed to fetch ingredients: ${res.statusText}`);

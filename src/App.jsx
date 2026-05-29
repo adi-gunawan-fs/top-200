@@ -11,6 +11,8 @@ import CourseTypePage from "./components/CourseTypePage";
 import IngredientPage from "./components/IngredientPage";
 import DietPage from "./components/DietPage";
 import AllergenPage from "./components/AllergenPage";
+import CuisinePage from "./components/CuisinePage";
+import LocationTypePage from "./components/LocationTypePage";
 import { ChangePasswordModal } from "./components/ui/ChangePasswordModal";
 import { getSession, onAuthStateChange, signOut } from "./lib/auth";
 import { WeightsProvider } from "./contexts/WeightsContext";
@@ -24,6 +26,8 @@ const MODE_COURSE_TYPE = "course-type";
 const MODE_INGREDIENT = "ingredient";
 const MODE_DIET = "diet";
 const MODE_ALLERGEN = "allergen";
+const MODE_CUISINE = "cuisine";
+const MODE_LOCATION_TYPE = "location-type";
 const IS_LOCAL_ENV = String(import.meta.env.VITE_LOCAL_ENV).toLowerCase() === "true";
 const ROUTES = {
   [MODE_LARGE_BRAND]: "/top-200/large-brand-list",
@@ -35,6 +39,8 @@ const ROUTES = {
   [MODE_INGREDIENT]: "/metadata/ingredient",
   [MODE_DIET]: "/metadata/diet",
   [MODE_ALLERGEN]: "/metadata/allergen",
+  [MODE_CUISINE]: "/metadata/cuisine",
+  [MODE_LOCATION_TYPE]: "/metadata/location-type",
 };
 
 const SECTION_TOP_200 = "top-200";
@@ -51,6 +57,8 @@ const MODE_SECTION = {
   [MODE_INGREDIENT]: SECTION_METADATA,
   [MODE_DIET]: SECTION_METADATA,
   [MODE_ALLERGEN]: SECTION_METADATA,
+  [MODE_CUISINE]: SECTION_METADATA,
+  [MODE_LOCATION_TYPE]: SECTION_METADATA,
 };
 
 function getDefaultMode() {
@@ -67,6 +75,8 @@ function getModeFromPathname(pathname) {
   if (pathname === ROUTES[MODE_INGREDIENT]) return MODE_INGREDIENT;
   if (pathname === ROUTES[MODE_DIET]) return MODE_DIET;
   if (pathname === ROUTES[MODE_ALLERGEN]) return MODE_ALLERGEN;
+  if (pathname === ROUTES[MODE_CUISINE]) return MODE_CUISINE;
+  if (pathname === ROUTES[MODE_LOCATION_TYPE]) return MODE_LOCATION_TYPE;
   return null;
 }
 
@@ -176,6 +186,8 @@ function App() {
     { id: MODE_INGREDIENT, label: "Ingredient", enabled: true },
     { id: MODE_DIET, label: "Diet", enabled: true },
     { id: MODE_ALLERGEN, label: "Allergen", enabled: true },
+    { id: MODE_CUISINE, label: "Cuisines", enabled: true },
+    { id: MODE_LOCATION_TYPE, label: "Location Type", enabled: true },
   ].filter((option) => option.enabled);
 
   return (
@@ -391,6 +403,10 @@ function App() {
             <DietPage />
           ) : mode === MODE_ALLERGEN ? (
             <AllergenPage />
+          ) : mode === MODE_CUISINE ? (
+            <CuisinePage />
+          ) : mode === MODE_LOCATION_TYPE ? (
+            <LocationTypePage />
           ) : (
             <BrandListPage
               onBack={() => setSelectedLargeBrand(null)}

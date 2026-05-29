@@ -1594,6 +1594,43 @@ app.get("/api/metadata/course-types", async (_req, res) => {
   }
 });
 
+// GET /api/metadata/cuisines — all cuisine types from the metadata DB.
+app.get("/api/metadata/cuisines", async (_req, res) => {
+  try {
+    const { rows } = await metadataPool.query(
+      `SELECT id, name, "parentId", "isCurationEnabled", position
+       FROM "cuisineTypes"
+       ORDER BY position ASC NULLS LAST, name ASC`,
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error("metadata cuisines error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metadata/location-types — locationTypes grouped under locationTypeCategories.
+app.get("/api/metadata/location-types", async (_req, res) => {
+  try {
+    const [items, categories] = await Promise.all([
+      metadataPool.query(
+        `SELECT id, name, "isCurationEnabled", position, "locationTypeCategoryId"
+         FROM "locationTypes"
+         ORDER BY position ASC NULLS LAST, name ASC`,
+      ),
+      metadataPool.query(
+        `SELECT id, name, "isCurationEnabled", position
+         FROM "locationTypeCategories"
+         ORDER BY position ASC NULLS LAST, name ASC`,
+      ),
+    ]);
+    res.json({ rows: items.rows, categories: categories.rows });
+  } catch (err) {
+    console.error("metadata location-types error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/metadata/ingredients — all ingredients from the metadata DB.
 app.get("/api/metadata/ingredients", async (_req, res) => {
   try {
