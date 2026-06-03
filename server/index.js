@@ -995,7 +995,7 @@ app.get("/api/menu-filter-options", async (_req, res) => {
         `SELECT DISTINCT ct.id, ct.name
          FROM menus m
          INNER JOIN brands b ON b.id = m."brandId"
-         INNER JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         INNER JOIN "cuisineTypes" ct ON ct.id = b."cuisineTypeId"
          WHERE m."status" = 'INCLUDED'
            AND m."isDeleted" = false
            AND m."isFake" = false
@@ -1049,7 +1049,7 @@ app.get("/api/menus", async (req, res) => {
 
   if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
     params.push(cuisineTypeId);
-    where.push(`m."cuisineTypeId" = $${params.length}`);
+    where.push(`b."cuisineTypeId" = $${params.length}`);
   }
 
   if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
@@ -1091,7 +1091,7 @@ app.get("/api/menus", async (req, res) => {
          m.id                  AS "menuId",
          m."brandId"           AS "brandId",
          b.name                AS "brandName",
-         m."cuisineTypeId"     AS "cuisineTypeId",
+         b."cuisineTypeId"     AS "cuisineTypeId",
          ct.name               AS "cuisineType",
          b."mainLocationTypeId" AS "mainLocationTypeId",
          lt.name               AS "locationType",
@@ -1099,7 +1099,7 @@ app.get("/api/menus", async (req, res) => {
          b."isTop200"          AS "isTop200"
        FROM menus m
        INNER JOIN brands b ON b.id = m."brandId"
-       LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+       LEFT JOIN "cuisineTypes" ct ON ct.id = b."cuisineTypeId"
        LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
        WHERE ${whereSql}
        ORDER BY b.name ASC, m.id ASC
@@ -1137,7 +1137,7 @@ app.get("/api/menu-section-report", async (req, res) => {
   }
   if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
     params.push(cuisineTypeId);
-    where.push(`m."cuisineTypeId" = $${params.length}`);
+    where.push(`b."cuisineTypeId" = $${params.length}`);
   }
   if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
     params.push(locationTypeId);
@@ -1167,7 +1167,7 @@ app.get("/api/menu-section-report", async (req, res) => {
                 COUNT(*)::int                   AS count
          FROM menus m
          INNER JOIN brands b ON b.id = m."brandId"
-         LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         LEFT JOIN "cuisineTypes" ct ON ct.id = b."cuisineTypeId"
          WHERE ${whereSql}
          GROUP BY COALESCE(ct.name, 'Not Tagged')
          ORDER BY count DESC, name ASC`,
@@ -1219,7 +1219,7 @@ app.get("/api/menus-random-sample", async (req, res) => {
   }
   if (Number.isFinite(cuisineTypeId) && cuisineTypeId > 0) {
     params.push(cuisineTypeId);
-    where.push(`m."cuisineTypeId" = $${params.length}`);
+    where.push(`b."cuisineTypeId" = $${params.length}`);
   }
   if (Number.isFinite(locationTypeId) && locationTypeId > 0) {
     params.push(locationTypeId);
@@ -1250,7 +1250,7 @@ app.get("/api/menus-random-sample", async (req, res) => {
            b."isTop200"          AS "isTop200"
          FROM menus m
          INNER JOIN brands b ON b.id = m."brandId"
-         LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+         LEFT JOIN "cuisineTypes" ct ON ct.id = b."cuisineTypeId"
          LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
          WHERE ${where.join(" AND ")}
          ORDER BY m."brandId", random()
@@ -1295,7 +1295,7 @@ app.get("/api/menu-dish-export", async (req, res) => {
          lt."name" AS "locationType"
        FROM menus m
        INNER JOIN brands b ON b.id = m."brandId"
-       LEFT JOIN "cuisineTypes" ct ON ct.id = m."cuisineTypeId"
+       LEFT JOIN "cuisineTypes" ct ON ct.id = b."cuisineTypeId"
        LEFT JOIN "locationTypes" lt ON lt.id = b."mainLocationTypeId"
        WHERE m.id = $1
        LIMIT 1`,
@@ -1304,15 +1304,30 @@ app.get("/api/menu-dish-export", async (req, res) => {
     const meta = menuMetaRows[0] ?? {};
 
     const { rows: dishRows } = await pool.query(
-      `WITH latest_curator_cutoff AS (
-         SELECT
+      `WITH curated_pick AS (
+         -- Per dish, pick the latest snapshot whose type is QC, else QA, else CURATOR.
+         SELECT DISTINCT ON (ds."dishId")
+           ds."dishId",
            ds."menuCurationTaskId",
-           MAX(ds."createdAt") AS "latestCuratorCreatedAt"
+           ds."type"        AS "curatedType",
+           ds."createdAt"   AS "curatedCreatedAt",
+           ds."dishTypeId"  AS "curatedDishTypeId",
+           ds."dietIds"     AS "curatedDietIds"
          FROM "dishSnapshots" ds
          INNER JOIN "menuCurationTasks" mct ON mct.id = ds."menuCurationTaskId"
          WHERE mct."menuId" = $1
-           AND ds."type" = 'CURATOR'
-         GROUP BY ds."menuCurationTaskId"
+           AND ds."type" IN ('QC', 'QA', 'CURATOR')
+         ORDER BY
+           ds."dishId",
+           CASE ds."type" WHEN 'QC' THEN 1 WHEN 'QA' THEN 2 WHEN 'CURATOR' THEN 3 END,
+           ds."createdAt" DESC
+       ),
+       latest_curator_cutoff AS (
+         SELECT
+           "menuCurationTaskId",
+           MAX("curatedCreatedAt") AS "latestCuratorCreatedAt"
+         FROM curated_pick
+         GROUP BY "menuCurationTaskId"
        ),
        latest_ai AS (
          SELECT DISTINCT ON (ds."dishId")
@@ -1366,6 +1381,7 @@ app.get("/api/menu-dish-export", async (req, res) => {
          dt."name"                                                         AS "currentDishType",
          dt_prev."name"                                                    AS "suggestedDishType",
          dt_curator."name"                                                 AS "curatedDishType",
+         cp."curatedType"                                                  AS "curatedType",
          dt."isIgnored"                                                    AS "dishTypeIsIgnored",
          ct."name"                                                         AS "courseType",
          ct."isIgnored"                                                    AS "courseTypeIsIgnored",
@@ -1378,7 +1394,7 @@ app.get("/api/menu-dish-export", async (req, res) => {
          (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la."dietIds"))                AS "diets",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la."dietIds"))                AS "currentDiets",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(la_prev."dietIds"))           AS "suggestedDiets",
-         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(curator."dietIds"))           AS "curatedDiets",
+         (SELECT string_agg(name, ', ' ORDER BY name) FROM diets       WHERE id = ANY(cp."curatedDietIds"))         AS "curatedDiets",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM allergens   WHERE id = ANY(la."allergenIds"))            AS "allergens",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."mainIngredientIds"))      AS "mainIngredients",
          (SELECT string_agg(name, ', ' ORDER BY name) FROM ingredients WHERE id = ANY(la."choiceIngredientIds"))    AS "choiceIngredients",
@@ -1390,16 +1406,10 @@ app.get("/api/menu-dish-export", async (req, res) => {
          ON la_prev."dishId" = la."dishId"
         AND la_prev."menuCurationTaskId" = la."menuCurationTaskId"
        LEFT JOIN "dishTypes" dt_prev ON dt_prev.id = la_prev."dishTypeId"
-       LEFT JOIN LATERAL (
-         SELECT ds_curator."dishTypeId", ds_curator."dietIds"
-         FROM "dishSnapshots" ds_curator
-         WHERE ds_curator."menuCurationTaskId" = la."menuCurationTaskId"
-           AND ds_curator."dishId" = la."dishId"
-           AND ds_curator."type" = 'CURATOR'
-         ORDER BY ds_curator."createdAt" DESC
-         LIMIT 1
-       ) curator ON true
-       LEFT JOIN "dishTypes" dt_curator ON dt_curator.id = curator."dishTypeId"
+       LEFT JOIN curated_pick cp
+         ON cp."dishId" = la."dishId"
+        AND cp."menuCurationTaskId" = la."menuCurationTaskId"
+       LEFT JOIN "dishTypes" dt_curator ON dt_curator.id = cp."curatedDishTypeId"
        LEFT JOIN "courseTypes" ct ON ct.id = la."courseTypeId"
        WHERE d."isFake" = false
          AND d."isDeleted" = false
@@ -1498,6 +1508,7 @@ app.get("/api/menu-dish-export", async (req, res) => {
       currentDishType: d.currentDishType ?? "",
       suggestedDishType: d.suggestedDishType ?? "",
       curatedDishType: d.curatedDishType ?? "",
+      curatedType: d.curatedType ?? "",
       dishTypeIsIgnored: d.dishTypeIsIgnored ?? false,
       courseType: d.courseType ?? "",
       courseTypeIsIgnored: d.courseTypeIsIgnored ?? false,

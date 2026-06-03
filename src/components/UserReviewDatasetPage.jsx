@@ -101,6 +101,18 @@ function dishToCsvRow(dish, meta) {
   };
 }
 
+const DISHES_PER_MENU = 5;
+
+function sampleDishes(dishes) {
+  if (!Array.isArray(dishes) || dishes.length <= DISHES_PER_MENU) return dishes ?? [];
+  const arr = dishes.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, DISHES_PER_MENU);
+}
+
 function buildCsv(rows) {
   return [
     EXPORT_COLUMNS.map((c) => escapeCsvValue(c)).join(","),
@@ -434,7 +446,7 @@ function UserReviewDatasetPage() {
         cuisineType: data.cuisineType ?? "",
         locationType: data.locationType ?? "",
       };
-      const csvRows = (data.dishes ?? []).map((d) => dishToCsvRow(d, meta));
+      const csvRows = sampleDishes(data.dishes).map((d) => dishToCsvRow(d, meta));
       const brandSegment = safeFilenameSegment(menu.brandName, "menu");
       const filename = `menu_${menu.menuId}_${brandSegment}_loc_${row.menuCuratorLocationId}_dishes.csv`;
       downloadCsv(buildCsv(csvRows), filename);
@@ -472,7 +484,7 @@ function UserReviewDatasetPage() {
           cuisineType: data.cuisineType ?? "",
           locationType: data.locationType ?? "",
         };
-        const csvRowsForMenu = (data.dishes ?? []).map((d) => dishToCsvRow(d, meta));
+        const csvRowsForMenu = sampleDishes(data.dishes).map((d) => dishToCsvRow(d, meta));
         perMenuCsvRows.push(csvRowsForMenu);
         totalDishRows += csvRowsForMenu.length;
       } catch (err) {
@@ -562,9 +574,8 @@ function UserReviewDatasetPage() {
         .map(([k, v]) => `${k}:${v}`)
         .join(" ");
       const prelude = `Sample (${report.total}: messy ${report.messy}, sizes ${sizeSummary}, cuisines ${cuisineSummary}) · `;
-      // Shuffle so the 4 split CSVs each get an even mix of messy/clean & cuisines.
       const shuffled = shuffleInPlace(rows.slice());
-      await exportMenusForRows(shuffled, "user_review_sample_1000_export", prelude, 4);
+      await exportMenusForRows(shuffled, "user_review_sample_1000_export", prelude);
     } catch (err) {
       setExportError(err.message || "Failed to export sample.");
       setExportStatus("");

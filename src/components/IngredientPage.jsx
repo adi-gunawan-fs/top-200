@@ -118,7 +118,7 @@ function IngredientPage() {
 
   const handleExportCsv = () => {
     const byId = new Map(rows.map((r) => [r.id, r]));
-    const header = ["grand_parent", "parent", "ingredient", "is_curation_enabled"];
+    const header = ["grand_parent", "parent", "ingredient", "is_curation_enabled", "is_ignored"];
     const lines = [header.join(",")];
     rows.forEach((r) => {
       const parent = r.parentId != null ? byId.get(r.parentId) : null;
@@ -128,6 +128,7 @@ function IngredientPage() {
         escapeCsvValue(parent?.name ?? ""),
         escapeCsvValue(r.name ?? ""),
         escapeCsvValue(r.isCurationEnabled ? "TRUE" : "FALSE"),
+        escapeCsvValue(r.isIgnored ? "TRUE" : "FALSE"),
       ].join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
